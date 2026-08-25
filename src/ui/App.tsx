@@ -9,9 +9,11 @@ import { EbomTab } from './tabs/EbomTab';
 import { ImpactTab } from './tabs/ImpactTab';
 import { ItemsTab } from './tabs/ItemsTab';
 import { MbomTab } from './tabs/MbomTab';
+import { PlanningBomTab } from './tabs/PlanningBomTab';
+import { PurchaseBomTab } from './tabs/PurchaseBomTab';
 import { SyncTab } from './tabs/SyncTab';
 
-type TabKey = 'item' | 'ebom' | 'mbom' | 'change' | 'document' | 'sync' | 'impact';
+type TabKey = 'item' | 'ebom' | 'mbom' | 'change' | 'document' | 'sync' | 'impact' | 'purchase' | 'planning';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'item', label: '品目' },
@@ -21,6 +23,8 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'document', label: '文書' },
   { key: 'sync', label: '連携' },
   { key: 'impact', label: '影響分析' },
+  { key: 'purchase', label: '発注BOM' },
+  { key: 'planning', label: '計画BOM' },
 ];
 
 export function App() {
@@ -82,6 +86,8 @@ export function App() {
             }}
           />
         )}
+        {activeTab === 'purchase' && <PurchaseBomTab state={state} />}
+        {activeTab === 'planning' && <PlanningBomTab state={state} />}
       </main>
 
       {showOnboarding && (

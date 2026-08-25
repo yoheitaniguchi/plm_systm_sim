@@ -68,3 +68,76 @@ export function computeCostImpact(
     return { itemId, before, after, delta: after - before };
   });
 }
+
+// 発注BOM（購買ビュー、新規スコープ、docs/design.md PLM-EXT-13、Issue #8）：
+// M-BOMをBUY品目まで展開し、仕入先・単価・リードタイムを集計する読み取り専用レポート。
+// mbomLinesは呼び出し側がreducer.effectiveMbomLines()（代替部品グループ解決済み）を
+// 渡すことを前提とする。ここでは代替部品の解決は行わない。
+export interface PurchaseBomLine {
+  itemId: string;
+  name: string;
+  totalQtyPer: number; // topItemIdからの経路上のqtyPerを掛け合わせた累積必要数（複数経路は合算）
+  defaultSupplierId?: string;
+  purchasePrice?: number;
+  leadTimeDays: number;
+  extendedCost: number; // purchasePrice * totalQtyPer
+  supplierMissing: boolean; // defaultSupplierId未設定（UC-SYNC-6と同じ判定条件）
+}
+
+export function buildPurchaseBom(
+  topItemId: string,
+  mbomLines: PlmBomLine[],
+  items: PlmItem[],
+  asOfDay: number,
+): PurchaseBomLine[] {
+  const totals = new Map<string, number>(); // itemId -> 累積必要数（複数経路は合算）
+
+  function walk(itemId: string, cumulativeQty: number, depth: number, visited: Set<string>) {
+    if (depth > MAX_BOM_DEPTH) {
+      throw new Error(`BOM階層が深さ上限(${MAX_BOM_DEPTH})を超えました。循環参照の疑いがあります`);
+    }
+    const children = mbomLines.filter((l) => l.parentItemId === itemId && isEffectiveAsOf(l, asOfDay));
+    for (const line of children) {
+      if (visited.has(line.childItemId)) continue; // 循環参照防御（第三防御）
+      const childItem = items.find((i) => i.itemId === line.childItemId);
+      const childQty = cumulativeQty * line.qtyPer;
+      if (childItem?.makeBuy === 'BUY') {
+        totals.set(line.childItemId, (totals.get(line.childItemId) ?? 0) + childQty);
+      }
+      const nextVisited = new Set(visited);
+      nextVisited.add(line.childItemId);
+      walk(line.childItemId, childQty, depth + 1, nextVisited);
+    }
+  }
+
+  walk(topItemId, 1, 1, new Set([topItemId]));
+
+  return [...totals.entries()].map(([itemId, totalQtyPer]) => {
+    const item = items.find((i) => i.itemId === itemId);
+    const purchasePrice = item?.purchasePrice ?? 0;
+    return {
+      itemId,
+      name: item?.name ?? itemId,
+      totalQtyPer,
+      defaultSupplierId: item?.defaultSupplierId,
+      purchasePrice: item?.purchasePrice,
+      leadTimeDays: item?.leadTimeDays ?? 0,
+      extendedCost: purchasePrice * totalQtyPer,
+      supplierMissing: !item?.defaultSupplierId,
+    };
+  });
+}
+
+export function summarizePurchaseBomBySupplier(
+  lines: PurchaseBomLine[],
+): { supplierId: string; totalQty: number; totalCost: number }[] {
+  const groups = new Map<string, { totalQty: number; totalCost: number }>();
+  for (const line of lines) {
+    const key = line.defaultSupplierId ?? '（未設定）';
+    const g = groups.get(key) ?? { totalQty: 0, totalCost: 0 };
+    g.totalQty += line.totalQtyPer;
+    g.totalCost += line.extendedCost;
+    groups.set(key, g);
+  }
+  return [...groups.entries()].map(([supplierId, v]) => ({ supplierId, ...v }));
+}
