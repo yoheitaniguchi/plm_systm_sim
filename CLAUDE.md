@@ -144,6 +144,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 
 | ドメイン | 件名 | 費用対効果 | 概要 |
 |---|---|---|---|
+| 発注（新規） | 発注BOM（購買ビュー）の追加（[Issue #8](https://github.com/yoheitaniguchi/plm_systm_sim/issues/8)） | 中〜高 | M-BOMをBUY品目まで展開し、仕入先・単価・リードタイムを集計する読み取り専用タブ「発注BOM」を新設する。発注プロセス自体（発注書起票・受入検査等）は要件書1.3・11章のスコープ外方針を維持し、既存M-BOMを購買の目で読むレポートに限定する |
+| 計画（新規） | 計画BOM（時系列BOM展開）の追加（[Issue #9](https://github.com/yoheitaniguchi/plm_systm_sim/issues/9)） | 中〜高 | 確定済みM-BOMを対象に、リードタイムを考慮した所要展開（needByDay/startByDay）を算出する読み取り専用タブ「計画BOM」を新設する。単一品目・単一数量のWhat-if展開に限定し、`production_system_sim`側の計画オーダ（トランザクション）連携は対象外 |
 | 基盤（CI） | CI継続確認 | 高 | `.github/workflows/`（test.yml・deploy.yml・pr-preview.yml）が全PRで正しく動作し続けているかの継続確認 |
 | 影響分析 | 原価影響のUI導線強化 | 中（`ImpactTab.tsx`は現状、代替部品切替の前後比較のみ。ECOのbefore/after BOMを明示的に比較する導線が無い） | ECOごとにbeforeBom（起票時点のスナップショット）を保持し、クローズ前後の原価影響をECR起票画面から直接確認できるようにする |
 | マスタ | localStorage永続化 | 低〜中（実装コスト自体は低いが、要件書2章「永続化なし・単一セッション」という設計方針そのものの転換になるため、着手前に方針変更の可否をユーザーに確認する必要がある） | ブラウザリロードで状態が消える現状を、localStorageへの自動保存で解消する案 |
