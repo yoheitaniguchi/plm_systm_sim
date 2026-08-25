@@ -3,6 +3,7 @@ import { currentEbomLines } from '../domain/ebom';
 import { currentMbomLines } from '../domain/mbom';
 import type { PlmBomLine, PlmItem } from '../domain/types';
 import { BomTree } from './components/BomTree';
+import { MbomFlattenAnimation } from './components/MbomFlattenAnimation';
 
 interface OnboardingProps {
   items: PlmItem[];
@@ -50,9 +51,16 @@ export function Onboarding({ items, bomLines, onConvert, onFinish, onSkip }: Onb
           <>
             <h2>M-BOMへ変換してみましょう</h2>
             <p>変換すると「脚部ユニット」は消滅し、脚とネジが木製イス直下へフラット化されます。</p>
-            <button type="button" className="primary-button" onClick={onConvert}>
-              M-BOMに変換
-            </button>
+            <MbomFlattenAnimation rootItemId="FG-100" ebomLines={ebomLines} items={items} flattened={mbomLines.length > 0} />
+            {mbomLines.length > 0 ? (
+              <p className="muted" aria-live="polite">
+                脚部ユニットが消滅し、脚とネジが木製イス直下へ移動しました。「次へ」で確認しましょう。
+              </p>
+            ) : (
+              <button type="button" className="primary-button" onClick={onConvert}>
+                M-BOMに変換
+              </button>
+            )}
           </>
         )}
 
