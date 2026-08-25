@@ -10,6 +10,21 @@ export function isEffectiveAsOf(line: PlmBomLine, day: number): boolean {
   return afterStart && beforeEnd;
 }
 
+// 発注BOM・計画BOM共通：対象品目がまだM-BOMへ変換されていない（E-BOMのみ存在する）場合に拒否する。
+// PLM-EXT-13の両機能とも「確定済みM-BOMのみを対象とする」前提のため、未変換のまま渡されると
+// 結果が無言で空になってしまう（ユーザーが真因に気づけない）。bomLinesはE/M混在の配列を渡すこと。
+export function assertMbomConverted(topItemId: string, bomLines: PlmBomLine[]): void {
+  const hasEbomChildren = bomLines.some(
+    (l) => l.bomType === 'E' && l.parentItemId === topItemId && l.effectiveToDay === undefined,
+  );
+  const hasMbomChildren = bomLines.some((l) => l.bomType === 'M' && l.parentItemId === topItemId);
+  if (hasEbomChildren && !hasMbomChildren) {
+    throw new Error(
+      `品目 ${topItemId} はまだM-BOMへ変換されていません。M-BOMタブで確定済みM-BOMに変換してから実行してください`,
+    );
+  }
+}
+
 // 7.1: BOM逆展開（影響分析、三重防御の第三防御を実装）。
 export function whereUsed(
   itemId: string,

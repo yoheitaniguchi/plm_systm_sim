@@ -81,11 +81,12 @@ export function PlanningBomTab({ state }: PlanningBomTabProps) {
             <tr>
               <th scope="col">階層</th>
               <th scope="col">品目</th>
+              <th scope="col">区分</th>
               <th scope="col">親品目</th>
               <th scope="col">必要数</th>
               <th scope="col">リードタイム</th>
               <th scope="col">必要日</th>
-              <th scope="col">着手/発注日</th>
+              <th scope="col">着手（MAKE）/発注（BUY）日</th>
             </tr>
           </thead>
           <tbody>
@@ -93,6 +94,7 @@ export function PlanningBomTab({ state }: PlanningBomTabProps) {
               <tr key={`${r.itemId}-${r.parentItemId}-${idx}`}>
                 <td>{r.level}</td>
                 <td>{r.itemId}</td>
+                <td>{state.items.find((i) => i.itemId === r.itemId)?.makeBuy ?? '—'}</td>
                 <td>{r.parentItemId || '—'}</td>
                 <td>{r.qtyRequired}</td>
                 <td>{r.leadTimeDays}日</td>

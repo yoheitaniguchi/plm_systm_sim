@@ -2,7 +2,7 @@
 // 時系列の所要展開（needByDay/startByDay）を算出する（新規スコープ、docs/design.md PLM-EXT-13、Issue #9）。
 // 単一品目・単一数量・単一目標日のWhat-if展開に限定し、production_system_sim側の
 // 計画オーダ（トランザクション）連携は対象外とする。
-import { isEffectiveAsOf, MAX_BOM_DEPTH } from './impactAnalysis';
+import { assertMbomConverted, isEffectiveAsOf, MAX_BOM_DEPTH } from './impactAnalysis';
 import { resolveAlternates } from './mbom';
 import type { PlmBomLine, PlmItem } from './types';
 
@@ -25,15 +25,7 @@ export function explodePlanningBom(
   items: PlmItem[],
   alternateOverrides: Record<string, string> = {},
 ): PlanningExplosionLine[] {
-  const hasEbomChildren = bomLines.some(
-    (l) => l.bomType === 'E' && l.parentItemId === topItemId && l.effectiveToDay === undefined,
-  );
-  const hasMbomChildren = bomLines.some((l) => l.bomType === 'M' && l.parentItemId === topItemId);
-  if (hasEbomChildren && !hasMbomChildren) {
-    throw new Error(
-      `品目 ${topItemId} はまだM-BOMへ変換されていません。M-BOMタブで確定済みM-BOMに変換してから計画BOM展開を実行してください`,
-    );
-  }
+  assertMbomConverted(topItemId, bomLines);
 
   // currentMbomLines()は「旧版化されていない（effectiveToDay未設定）」行だけに絞り込むため、
   // asOfDayが過去日の場合に旧版行を誤って除外してしまう。ここではbomType==='M'の全行から

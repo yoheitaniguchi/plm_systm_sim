@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { buildPurchaseBom, summarizePurchaseBomBySupplier } from '../../domain/impactAnalysis';
+import { assertMbomConverted, buildPurchaseBom, isEffectiveAsOf, summarizePurchaseBomBySupplier } from '../../domain/impactAnalysis';
 import type { PurchaseBomLine } from '../../domain/impactAnalysis';
-import { effectiveMbomLines } from '../../domain/reducer';
+import { resolveAlternates } from '../../domain/mbom';
 import type { AppState } from '../../domain/reducer';
 import { formatYen } from '../format';
 
@@ -31,7 +31,13 @@ export function PurchaseBomTab({ state }: PurchaseBomTabProps) {
           e.preventDefault();
           setError(null);
           try {
-            setResult(buildPurchaseBom(itemId, effectiveMbomLines(state), state.items, asOfDay));
+            assertMbomConverted(itemId, state.bomLines);
+            // reducer.effectiveMbomLines()は「旧版化されていない」行だけに絞り込むため、
+            // 過去日のasOfDayを指定しても旧版行が復元されない（bomType==='M'の全行から
+            // isEffectiveAsOf()で直接asOfDay時点の有効行を抽出する必要がある）。
+            const mLines = state.bomLines.filter((l) => l.bomType === 'M' && isEffectiveAsOf(l, asOfDay));
+            const resolved = resolveAlternates(mLines, state.alternateOverrides);
+            setResult(buildPurchaseBom(itemId, resolved, state.items, asOfDay));
           } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
             setResult(null);
@@ -66,7 +72,11 @@ export function PurchaseBomTab({ state }: PurchaseBomTabProps) {
         </div>
       )}
 
-      {result && (
+      {result && result.length === 0 && (
+        <p className="muted">対象品目の配下にBUY品目（購入品）がありません。</p>
+      )}
+
+      {result && result.length > 0 && (
         <>
           {missingSupplierIds.length > 0 && (
             <div className="banner banner--warning" role="status">
@@ -78,7 +88,7 @@ export function PurchaseBomTab({ state }: PurchaseBomTabProps) {
             <thead>
               <tr>
                 <th scope="col">品目</th>
-                <th scope="col">数量</th>
+                <th scope="col">累積必要数（対象品目1個あたり）</th>
                 <th scope="col">仕入先</th>
                 <th scope="col">単価</th>
                 <th scope="col">拡張原価</th>

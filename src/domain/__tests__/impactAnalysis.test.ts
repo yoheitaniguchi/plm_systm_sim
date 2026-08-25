@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveAlternates } from '../mbom';
 import {
   MAX_BOM_DEPTH,
+  assertMbomConverted,
   buildPurchaseBom,
   computeCostImpact,
   computeRolledUpCost,
@@ -211,5 +212,36 @@ describe('buildPurchaseBom (発注BOM、Issue #8)', () => {
     const sup2 = summary.find((s) => s.supplierId === 'SUP-2'); // PT-400のみ（SUP-2、PT-500は未設定なので別グループ）
     expect(sup2?.totalQty).toBe(4);
     expect(sup2?.totalCost).toBe(250 * 4);
+  });
+
+  // isEffectiveAsOf()による有効日フィルタが機能することを、旧版化された行を含む
+  // 生のM-BOM行（currentMbomLinesを経由しない）に対して直接検証する。
+  it('respects effectiveFromDay/effectiveToDay when asOfDay is in the past', () => {
+    const bomLines: PlmBomLine[] = [
+      { parentItemId: 'FG-100', childItemId: 'PT-400', qtyPer: 4, bomLineId: 'M-1', bomType: 'M', version: 1, effectiveFromDay: 0, effectiveToDay: 50 },
+      { parentItemId: 'FG-100', childItemId: 'PT-400', qtyPer: 6, bomLineId: 'M-1-v2', bomType: 'M', version: 2, effectiveFromDay: 50 },
+    ];
+    const before = buildPurchaseBom('FG-100', bomLines, items, 10);
+    expect(before.find((r) => r.itemId === 'PT-400')?.totalQtyPer).toBe(4);
+
+    const after = buildPurchaseBom('FG-100', bomLines, items, 60);
+    expect(after.find((r) => r.itemId === 'PT-400')?.totalQtyPer).toBe(6);
+  });
+});
+
+describe('assertMbomConverted (発注BOM・計画BOM共通の前提チェック)', () => {
+  it('rejects a topItemId whose E-BOM has not yet been converted to M-BOM', () => {
+    const bomLines: PlmBomLine[] = [
+      { parentItemId: 'FG-100', childItemId: 'SA-200', qtyPer: 1, bomLineId: 'E-1', bomType: 'E', version: 1, effectiveFromDay: 0 },
+    ];
+    expect(() => assertMbomConverted('FG-100', bomLines)).toThrow(/M-BOM/);
+  });
+
+  it('accepts a topItemId whose M-BOM already exists', () => {
+    expect(() => assertMbomConverted('FG-100', woodenChairMbom())).not.toThrow();
+  });
+
+  it('accepts a leaf item with no BOM lines at all', () => {
+    expect(() => assertMbomConverted('PT-400', woodenChairMbom())).not.toThrow();
   });
 });
