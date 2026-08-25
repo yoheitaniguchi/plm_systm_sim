@@ -1,0 +1,46 @@
+name: PR Preview
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+# 同一PRへの連続pushで前のプレビュー配信が競合しないよう、PR単位で直列化する
+concurrency:
+  group: pr-preview-${{ github.event.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    # フォークからのPRはGITHUB_TOKENが読み取り専用になり gh-pages へpushできないため対象外にする
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        if: github.event.action != 'closed'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: github.event.action != 'closed'
+        run: npm ci
+
+      - name: Build
+        if: github.event.action != 'closed'
+        run: npm run build
+        env:
+          # gh-pages上の配信先パス（pr-preview-actionのデフォルト構成 pr-preview/pr-<番号>/ と一致させる）
+          BASE_PATH: /plm_systm_sim/pr-preview/pr-${{ github.event.number }}/
+
+      - name: Deploy preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: ./dist
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
