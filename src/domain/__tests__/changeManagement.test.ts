@@ -11,7 +11,7 @@ import {
   submitForReview,
   withdrawChange,
 } from '../changeManagement';
-import type { EngineeringChange, SyncEvent } from '../types';
+import type { EngineeringChange, PlmBomLine, SyncEvent } from '../types';
 
 function minorRequest(changes: EngineeringChange[] = []): EngineeringChange[] {
   createChangeRequest(changes, {
@@ -131,5 +131,28 @@ describe('changeManagement domain', () => {
     const syncEvents: SyncEvent[] = [{ eventId: 'SYNC-1', sourceChangeId: 'ECR-1', status: '送信済', exportedAtDay: 12 }];
     expect(checkWithdrawable(changes[0], syncEvents).canWithdraw).toBe(false);
     expect(() => withdrawChange(changes, 'ECR-1', syncEvents)).toThrow(/新しいECRとして/);
+  });
+
+  // Issue #4: ECR起票時点のM-BOMスナップショットを保持する
+  it('captures a structuredClone snapshot of the current M-BOM as beforeBomLines at ECR creation', () => {
+    const changes: EngineeringChange[] = [];
+    const mbomLines: PlmBomLine[] = [
+      { parentItemId: 'FG-100', childItemId: 'PT-400', qtyPer: 4, bomLineId: 'M-1', bomType: 'M', version: 1, effectiveFromDay: 0 },
+    ];
+    createChangeRequest(
+      changes,
+      { changeId: 'ECR-10', reason: 'コスト削減', changeLevel: '軽微', impactedItemIds: ['FG-100'], impactedBomLineIds: [] },
+      mbomLines,
+    );
+    expect(changes[0].beforeBomLines).toEqual(mbomLines);
+
+    // 元の配列を書き換えても、記録済みスナップショットには影響しない（structuredClone）
+    mbomLines[0].qtyPer = 999;
+    expect(changes[0].beforeBomLines?.[0].qtyPer).toBe(4);
+  });
+
+  it('records an empty beforeBomLines snapshot when no M-BOM lines are passed (default)', () => {
+    const changes = minorRequest();
+    expect(changes[0].beforeBomLines).toEqual([]);
   });
 });

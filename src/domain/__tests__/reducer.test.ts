@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { currentEbomLines, resolveConfiguration } from '../ebom';
+import { computeCostImpact } from '../impactAnalysis';
 import { convertEbomToMbom } from '../mbom';
 import {
   bicycleMasterSnapshot,
@@ -7,7 +8,7 @@ import {
   woodenChairMasterSnapshot,
   woodenChairRoutingMap,
 } from '../presets';
-import { createInitialState, reducer } from '../reducer';
+import { createInitialState, effectiveMbomLines, reducer } from '../reducer';
 import type { AppState } from '../reducer';
 
 describe('presets', () => {
@@ -83,6 +84,45 @@ describe('reducer', () => {
     expect(state.lastError).toBeNull();
     expect(state.changes[0].status).toBe('クローズ');
     expect(state.syncSession?.touchedItemIds.has('FG-100')).toBe(true);
+  });
+
+  // Issue #4: ECR起票時点のbeforeBomLinesスナップショットと、クローズ後の現在M-BOMとの
+  // 原価差分をcomputeCostImpact()で確認できることをreducer経由のend-to-endで検証する
+  it('captures a beforeBom snapshot at ECR creation and reflects the cost delta after switching to a cheaper alternate leg', () => {
+    let state = createWoodenChairDemoState();
+    state = reducer(state, {
+      type: 'mbom/convert',
+      routingMap: woodenChairRoutingMap,
+      effectiveFromDay: 0,
+      configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' },
+    });
+    expect(state.lastError).toBeNull();
+
+    state = reducer(state, {
+      type: 'change/create',
+      input: { changeId: 'ECR-200', reason: 'コスト削減', changeLevel: '軽微', impactedItemIds: ['FG-100'], impactedBomLineIds: [] },
+    });
+    const created = state.changes.find((c) => c.changeId === 'ECR-200')!;
+    expect(created.beforeBomLines?.some((l) => l.childItemId === 'PT-400')).toBe(true);
+
+    // PT-400（脚・標準、@250円）からPT-401（脚・代替品B、@220円）へ切り替える
+    state = reducer(state, { type: 'mbom/setAlternateOverride', alternateGroupId: 'AG-LEG', childItemId: 'PT-401' });
+    state = reducer(state, { type: 'change/submitForReview', changeId: 'ECR-200' });
+    state = reducer(state, {
+      type: 'change/recordApproval',
+      changeId: 'ECR-200',
+      decision: { approverRole: '設計リーダー', decision: '承認' },
+    });
+    state = reducer(state, { type: 'change/issueEco', changeId: 'ECR-200', effectiveFromDay: 10 });
+    state = reducer(state, { type: 'change/notifyEcn', changeId: 'ECR-200' });
+    state = reducer(state, { type: 'change/close', changeId: 'ECR-200' });
+    expect(state.lastError).toBeNull();
+
+    const closed = state.changes.find((c) => c.changeId === 'ECR-200')!;
+    expect(closed.status).toBe('クローズ');
+    const [impact] = computeCostImpact(closed, closed.beforeBomLines ?? [], effectiveMbomLines(state), state.items);
+    // 脚は4本(qtyPer 4)使うので、差分は (250-220)*4 = 120円のコストダウン
+    expect(impact.delta).toBe(-120);
   });
 
   // UC-VARIANT-1/2: 「布張り」を選ぶと新しい品目FG-101が確定し、そのM-BOMが得られる
