@@ -18,6 +18,8 @@ export function ImpactTab({ state, onRequestEcr }: ImpactTabProps) {
   const [bomType, setBomType] = useState<BomType>('M');
   const [result, setResult] = useState<{ parentItemId: string; depth: number }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedChangeId, setSelectedChangeId] = useState('');
+  const [confirmedChangeId, setConfirmedChangeId] = useState('');
 
   const lines = bomType === 'E' ? currentEbomLines(state.bomLines) : currentMbomLines(state.bomLines);
   const impactedItemIds = result ? [...new Set(result.map((r) => r.parentItemId))] : [];
@@ -38,6 +40,14 @@ export function ImpactTab({ state, onRequestEcr }: ImpactTabProps) {
     approvals: [],
   };
   const costImpact = computeCostImpact(dummyChange, defaultMbom, overriddenMbom, state.items);
+
+  const changesWithSnapshot = state.changes.filter(
+    (c) => c.beforeBomLines !== undefined && c.impactedItemIds.length > 0,
+  );
+  const confirmedChange = changesWithSnapshot.find((c) => c.changeId === confirmedChangeId) ?? null;
+  const changeCostImpact = confirmedChange
+    ? computeCostImpact(confirmedChange, confirmedChange.beforeBomLines ?? [], overriddenMbom, state.items)
+    : [];
 
   return (
     <section aria-labelledby="impact-heading">
@@ -126,6 +136,66 @@ export function ImpactTab({ state, onRequestEcr }: ImpactTabProps) {
           ))}
         </tbody>
       </table>
+
+      <h3>ECRごとの原価影響（起票時点比較）</h3>
+      <p className="muted">
+        ECR起票時点に記録したM-BOMスナップショットと現在のM-BOMを比較します。ECOクローズ後に、
+        起票時点からどれだけ原価が変わったかを確認する用途を想定しています。
+      </p>
+      {changesWithSnapshot.length === 0 ? (
+        <p className="muted">
+          起票時点のBOMスナップショットを持つ変更がまだありません。変更管理タブでECRを起票すると、この一覧から選べるようになります。
+        </p>
+      ) : (
+        <>
+          <form
+            className="form-grid"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setConfirmedChangeId(selectedChangeId);
+            }}
+          >
+            <label>
+              対象の変更
+              <select required value={selectedChangeId} onChange={(e) => setSelectedChangeId(e.target.value)}>
+                <option value="" disabled>
+                  選択してください
+                </option>
+                {changesWithSnapshot.map((c) => (
+                  <option key={c.changeId} value={c.changeId}>
+                    {c.changeId}（{c.status}）
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" className="primary-button">
+              原価影響を表示する
+            </button>
+          </form>
+          {confirmedChange && (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">品目</th>
+                  <th scope="col">起票時点</th>
+                  <th scope="col">現在</th>
+                  <th scope="col">差分</th>
+                </tr>
+              </thead>
+              <tbody>
+                {changeCostImpact.map((c) => (
+                  <tr key={c.itemId}>
+                    <td>{c.itemId}</td>
+                    <td>{formatYen(c.before)}</td>
+                    <td>{formatYen(c.after)}</td>
+                    <td className={c.delta < 0 ? 'delta-negative' : c.delta > 0 ? 'delta-positive' : ''}>{formatYen(c.delta)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
     </section>
   );
 }

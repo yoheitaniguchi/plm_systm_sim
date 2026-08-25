@@ -150,6 +150,9 @@ export interface EngineeringChange {
   effectiveFromDay?: number;
   disposition?: Disposition;
   approvals: ApproverDecision[];
+  // ECR起票時点のM-BOMスナップショット（PLM-EXT-14）。原価影響（7.7）のbefore基準として使う。
+  // E-BOM側は対象外（既存方針を踏襲、design.md PLM-EXT-14参照）。
+  beforeBomLines?: PlmBomLine[];
 }
 
 // ---------- 文書 ----------

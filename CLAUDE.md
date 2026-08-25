@@ -93,7 +93,7 @@ npm run dev          # 開発サーバー起動（ルート配信）
 npm run build        # 型チェック（tsc -b）＋ビルド（vite build、GitHub Pages用baseパス）
 npm run typecheck    # 型チェックのみ実行（tsc -b --noEmit）
 npm run lint         # eslint
-npm test             # vitestによる自動テスト全件実行（76件、要件書8章の42ユースケース相当＋PLM-EXT-13分）
+npm test             # vitestによる自動テスト全件実行（83件、要件書8章の42ユースケース相当＋PLM-EXT-13・14分）
 npx vitest run <path> # 特定テストのみ実行（例: npx vitest run src/domain/__tests__/mbom.test.ts）
 npm run preview      # build成果物をGitHub Pages相当のbaseパスで動作確認
 npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリティ自動検査（npm run devを自動起動）
@@ -120,7 +120,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 ## 現在の実装状況
 
 **要件書（Rev.H）の全ドメイン（品目・E-BOM・M-BOM・変更管理・文書・マスタ連携・影響分析）に加え、
-要件書のスコープ外の新規機能である発注BOM・計画BOM（PLM-EXT-13、Issue #8・#9）を実装済み。**
+要件書のスコープ外の新規機能である発注BOM・計画BOM（PLM-EXT-13、Issue #8・#9）、ECOのbefore/after BOM
+比較（PLM-EXT-14、Issue #4）を実装済み。**
 
 - `src/domain/`：9モジュール（`item.ts`・`ebom.ts`・`mbom.ts`・`changeManagement.ts`・`document.ts`・
   `masterSnapshot.ts`・`impactAnalysis.ts`・`planningBom.ts`）＋`reducer.ts`（`structuredClone`した
@@ -130,8 +131,12 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 - 発注BOM（`impactAnalysis.buildPurchaseBom()`）・計画BOM（`planningBom.explodePlanningBom()`）は
   確定済みM-BOMを対象とした読み取り専用の派生ビュー。いずれも代替部品グループ
   （`mbom.resolveAlternates()`）を解決してから展開することで二重計上を防いでいる（PLM-EXT-13）
-- `src/domain/__tests__/`：76件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
-  IMPACT/ALT/VARIANT、計42件相当）＋発注BOM・計画BOMのテストを検証済み
+- ECR起票時点のM-BOMスナップショット（`EngineeringChange.beforeBomLines`）を`change/create`
+  ディスパッチ時（`reducer.effectiveMbomLines()`を`structuredClone`）に記録し、`ImpactTab.tsx`の
+  「ECRごとの原価影響（起票時点比較）」から`computeCostImpact()`でクローズ前後の原価差分を確認できる
+  （PLM-EXT-14）。既存の代替部品切替の前後比較機能は維持したまま追加した
+- `src/domain/__tests__/`：83件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
+  IMPACT/ALT/VARIANT、計42件相当）＋発注BOM・計画BOM・ECOのbefore/after BOM比較のテストを検証済み
 - `src/ui/`：9ドメインのタブ画面＋木製イすの5ステップオンボーディングツアー（要件書10.2の台本どおり、
   脚部ユニットのハイライト→M-BOM変換のライブデモを含む）を実装済み。ステップ3の変換操作では
   `MbomFlattenAnimation`が脚部ユニット消滅→フラット化をCSSトランジションで可視化する
@@ -151,7 +156,6 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 | ドメイン | 件名 | 費用対効果 | 概要 |
 |---|---|---|---|
 | 基盤（CI） | CI継続確認 | 高 | `.github/workflows/`（test.yml・deploy.yml・pr-preview.yml）が全PRで正しく動作し続けているかの継続確認 |
-| 影響分析 | 原価影響のUI導線強化 | 中（`ImpactTab.tsx`は現状、代替部品切替の前後比較のみ。ECOのbefore/after BOMを明示的に比較する導線が無い） | ECOごとにbeforeBom（起票時点のスナップショット）を保持し、クローズ前後の原価影響をECR起票画面から直接確認できるようにする |
 | マスタ | localStorage永続化 | 低〜中（実装コスト自体は低いが、要件書2章「永続化なし・単一セッション」という設計方針そのものの転換になるため、着手前に方針変更の可否をユーザーに確認する必要がある） | ブラウザリロードで状態が消える現状を、localStorageへの自動保存で解消する案 |
 
 ## 実装時に確認すべき設計判断（design.mdの要点）

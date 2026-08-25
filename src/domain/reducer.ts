@@ -217,7 +217,7 @@ function applyAction(draft: AppState, action: AppAction): void {
     }
 
     case 'change/create': {
-      changeManagement.createChangeRequest(draft.changes, action.input);
+      changeManagement.createChangeRequest(draft.changes, action.input, effectiveMbomLines(draft));
       break;
     }
     case 'change/submitForReview': {

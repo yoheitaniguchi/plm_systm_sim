@@ -4,6 +4,7 @@ import type {
   ChangeReason,
   ChangeStatus,
   EngineeringChange,
+  PlmBomLine,
   SyncEvent,
 } from './types';
 
@@ -66,9 +67,12 @@ export interface NewChangeRequestInput {
 
 // UC-ECM-1: ECRを起票すると、ステータス「起票」で作成される。
 // UC-ECM-5: raisedByRoleを指定すれば、起票元が記録される（現場フィードバックループ）。
+// PLM-EXT-14: 起票時点の実効M-BOM（currentMbomLines）をstructuredCloneして
+// beforeBomLinesとして記録し、後で原価影響（7.7）のbefore基準に使う。
 export function createChangeRequest(
   changes: EngineeringChange[],
   input: NewChangeRequestInput,
+  currentMbomLines: PlmBomLine[] = [],
 ): EngineeringChange {
   if (changes.some((c) => c.changeId === input.changeId)) {
     throw new Error(`変更ID ${input.changeId} は既に登録されています`);
@@ -78,6 +82,7 @@ export function createChangeRequest(
     type: 'ECR',
     status: '起票',
     approvals: [],
+    beforeBomLines: structuredClone(currentMbomLines),
   };
   changes.push(change);
   return change;
