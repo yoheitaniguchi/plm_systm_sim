@@ -73,6 +73,8 @@ plm_systm_sim/
         ├── format.ts                   # 表示用フォーマッタ
         ├── components/
         │   ├── BomTree.tsx                # E-BOM/M-BOM共用のツリー表示（深さ上限ガード付き）
+        │   ├── MbomFlattenAnimation.tsx    # オンボーディングステップ3限定：脚部ユニット消滅→
+        │   │                              # フラット化のCSSトランジション（要件書10.3）
         │   └── Banner.tsx                 # エラー・警告・情報バナー
         └── tabs/                       # 7ドメインの画面
             ├── ItemsTab.tsx / EbomTab.tsx / MbomTab.tsx / ChangeManagementTab.tsx
@@ -125,7 +127,9 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 - `src/domain/__tests__/`：61件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
   IMPACT/ALT/VARIANT、計42件相当）を検証済み
 - `src/ui/`：7ドメインのタブ画面＋木製イすの5ステップオンボーディングツアー（要件書10.2の台本どおり、
-  脚部ユニットのハイライト→M-BOM変換のライブデモを含む）を実装済み。`App.tsx`は`useReducer`で
+  脚部ユニットのハイライト→M-BOM変換のライブデモを含む）を実装済み。ステップ3の変換操作では
+  `MbomFlattenAnimation`が脚部ユニット消滅→フラット化をCSSトランジションで可視化する
+  （`prefers-reduced-motion: reduce`時は即時切替、要件書10.3）。`App.tsx`は`useReducer`で
   reducerを保持し、タブ切り替えとオンボーディング表示の制御のみを行う
 - `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、7タブ横断のナビゲーション、
   ECR→ECO→ECN→クローズの一連の操作フロー、アクセシビリティスキャン（critical/serious違反ゼロ）を
@@ -141,7 +145,6 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 | ドメイン | 件名 | 費用対効果 | 概要 |
 |---|---|---|---|
 | 基盤（CI） | CI継続確認 | 高 | `.github/workflows/`（test.yml・deploy.yml・pr-preview.yml）が全PRで正しく動作し続けているかの継続確認 |
-| UI（オンボーディング） | M-BOM変換アニメーション | 中（`Onboarding.tsx`のステップ3〜4は現状テキストとツリーの静的な切替のみ。要件書10.3が言う「脚部ユニットが消滅する様子をアニメーションで見せる」の実演度を上げる） | 脚部ユニット消滅→フラット化のトランジションをCSS/SVGアニメーションで見せる |
 | 影響分析 | 原価影響のUI導線強化 | 中（`ImpactTab.tsx`は現状、代替部品切替の前後比較のみ。ECOのbefore/after BOMを明示的に比較する導線が無い） | ECOごとにbeforeBom（起票時点のスナップショット）を保持し、クローズ前後の原価影響をECR起票画面から直接確認できるようにする |
 | マスタ | localStorage永続化 | 低〜中（実装コスト自体は低いが、要件書2章「永続化なし・単一セッション」という設計方針そのものの転換になるため、着手前に方針変更の可否をユーザーに確認する必要がある） | ブラウザリロードで状態が消える現状を、localStorageへの自動保存で解消する案 |
 

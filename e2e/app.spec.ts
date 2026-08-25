@@ -39,6 +39,37 @@ test.describe('onboarding (UC-UI-1/3)', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('button', { name: '変更管理', exact: true })).toHaveAttribute('aria-current', 'page');
   });
+
+  test('step 3 shows an animated flatten transition when converting to M-BOM', async ({ page }) => {
+    await page.goto('/');
+    const dialog = page.getByRole('dialog', { name: '木製イスのE-BOM構造ツアー' });
+    await dialog.getByRole('button', { name: '次へ' }).click();
+    await dialog.getByRole('button', { name: '次へ' }).click();
+    await expect(dialog.getByText('ステップ 3 / 5')).toBeVisible();
+
+    const diagram = dialog.locator('.mbom-flatten-diagram');
+    await expect(diagram).toBeVisible();
+    await expect(diagram).not.toHaveClass(/is-flattened/);
+    const groupNode = diagram.locator('.mbom-flatten-diagram__node--group');
+    await expect(groupNode).toHaveCSS('opacity', '1');
+
+    await dialog.getByRole('button', { name: 'M-BOMに変換' }).click();
+
+    await expect(diagram).toHaveClass(/is-flattened/);
+    await expect(groupNode).toHaveCSS('opacity', '0');
+    await expect(dialog.getByRole('button', { name: 'M-BOMに変換' })).toHaveCount(0);
+  });
+
+  test('falls back to an instant switch when prefers-reduced-motion is set', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    const dialog = page.getByRole('dialog', { name: '木製イスのE-BOM構造ツアー' });
+    await dialog.getByRole('button', { name: '次へ' }).click();
+    await dialog.getByRole('button', { name: '次へ' }).click();
+
+    const groupNode = dialog.locator('.mbom-flatten-diagram__node--group');
+    await expect(groupNode).toHaveCSS('transition-duration', '0s');
+  });
 });
 
 test.describe('free exploration', () => {
