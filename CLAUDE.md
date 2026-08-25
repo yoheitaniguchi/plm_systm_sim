@@ -107,8 +107,11 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   リポジトリオーナーによる一度きりの手動操作が必要）
 - 公開URL: `https://<owner>.github.io/plm_systm_sim/`
 - PRの作成・更新時は`.github/workflows/test.yml`が型チェック・lint・ビルド・vitest・E2E＋a11yを実行する
-  （PRプレビュー配信は現状未導入。導入する場合は`production_system_sim`の`pr-preview.yml`
-  ［`rossjrw/pr-preview-action`使用］が参考になる）
+- PRの作成・更新（`opened`/`reopened`/`synchronize`）・クローズ時は`.github/workflows/pr-preview.yml`
+  （`rossjrw/pr-preview-action`使用）が`gh-pages`ブランチの`pr-preview/pr-<番号>/`配下へビルド成果物を
+  配信し、PRへプレビューURLをコメントする（クローズ時は自動削除）。ビルド時は`vite.config.ts`が読む
+  `BASE_PATH`環境変数でこの配信先パスを上書きする。フォークからのPRは`GITHUB_TOKEN`が読み取り専用に
+  なるため対象外（`if: github.event.pull_request.head.repo.full_name == github.repository`）
 
 ## 現在の実装状況
 
@@ -127,7 +130,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 - `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、7タブ横断のナビゲーション、
   ECR→ECO→ECN→クローズの一連の操作フロー、アクセシビリティスキャン（critical/serious違反ゼロ）を
   ブラウザで確認済み（7件、全件green）
-- `.github/workflows/`：`test.yml`（PR gate）・`deploy.yml`（GitHub Pages自動デプロイ）を整備済み
+- `.github/workflows/`：`test.yml`（PR gate）・`deploy.yml`（GitHub Pages自動デプロイ）・
+  `pr-preview.yml`（PRプレビュー配信）を整備済み
 
 ## 次にやるべきこと（優先順）
 
@@ -136,9 +140,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 
 | ドメイン | 件名 | 費用対効果 | 概要 |
 |---|---|---|---|
-| 基盤（CI） | CI継続確認 | 高 | `.github/workflows/`（test.yml・deploy.yml）が全PRで正しく動作し続けているかの継続確認 |
+| 基盤（CI） | CI継続確認 | 高 | `.github/workflows/`（test.yml・deploy.yml・pr-preview.yml）が全PRで正しく動作し続けているかの継続確認 |
 | UI（オンボーディング） | M-BOM変換アニメーション | 中（`Onboarding.tsx`のステップ3〜4は現状テキストとツリーの静的な切替のみ。要件書10.3が言う「脚部ユニットが消滅する様子をアニメーションで見せる」の実演度を上げる） | 脚部ユニット消滅→フラット化のトランジションをCSS/SVGアニメーションで見せる |
-| マスタ連携 | PRプレビュー配信の導入 | 中（`production_system_sim`の`pr-preview.yml`パターンを移植するだけだが、`gh-pages`ブランチの運用がやや複雑になる） | PR作成・更新時に`gh-pages`ブランチの`pr-preview/pr-<番号>/`配下へ配信し、レビュー時に実際に触れるようにする |
 | 影響分析 | 原価影響のUI導線強化 | 中（`ImpactTab.tsx`は現状、代替部品切替の前後比較のみ。ECOのbefore/after BOMを明示的に比較する導線が無い） | ECOごとにbeforeBom（起票時点のスナップショット）を保持し、クローズ前後の原価影響をECR起票画面から直接確認できるようにする |
 | マスタ | localStorage永続化 | 低〜中（実装コスト自体は低いが、要件書2章「永続化なし・単一セッション」という設計方針そのものの転換になるため、着手前に方針変更の可否をユーザーに確認する必要がある） | ブラウザリロードで状態が消える現状を、localStorageへの自動保存で解消する案 |
 
