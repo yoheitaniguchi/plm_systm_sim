@@ -69,6 +69,7 @@
 | PLM-EXT-10 | アプリ初回起動時の状態 | 要件書はUC-SYNC-1（インポート）とUC-UI-1（初回オンボーディング＝木製イすのE-BOM構造がすでに見える）の両方を要求するが、両者の順序関係（起動直後は未インポート状態か、それとも整備済みか）は無規定 | **アプリの既定初期状態を「PLM側で既に整備済みの木製イすE-BOM」（脚部ユニット・座面バリアント・脚の代替部品グループを含む）として直接シードする**（`presets.createWoodenChairDemoState()`）。`MasterSnapshot`インポート機能（UC-SYNC-1）は連携タブから独立して使える別機能とし、「起動＝空でインポート待ち」にはしない。オンボーディングが即座に木製イすのE-BOM構造を見せられることを優先した |
 | PLM-EXT-11 | `MasterSnapshot`インポート時のスキーマ検証の実装レベル | 5章の型コメントは「makeBuyは"MAKE"\|"BUY"のリテラル以外不可、leadTimeDaysは0以上の整数、qtyPerは正の数」という制約を文章で述べるのみで、検証関数自体は要件書に無い | `masterSnapshot.parseMasterSnapshot()`（フィールド単位、最初のエラーで即時中断）・`assertSnapshotUsable()`（主キー重複・BOM循環・参照整合性、全項目をまとめてから一括拒否）を新規実装した。9.4節が述べるproduction_system_sim側の「二層構造の検証」と同じ構造をPLM側のインポートにも適用している |
 | PLM-EXT-12 | 影響分析タブでの原価影響（7.7）の見せ方 | `computeCostImpact()`はECOのbefore/after BOMを引数に取るが、UI側で「ECOごとのBOMスナップショットを保持する」具体的な仕組みは要件書に無い | 簡易版として、**代替部品グループのオーバーライド適用前後**（デフォルト優先順位のM-BOM vs 現在のオーバーライド適用後のM-BOM）を比較する形でUIに表示する。ECOごとのbefore/afterスナップショット管理は次のやるべきこと候補（CLAUDE.md参照）として先送りした |
+| PLM-EXT-13 | 計画BOM・発注BOM（要件書のスコープ外の新規機能） | 要件書1.2「スコープ内」の7ドメインには存在しない、ユーザーからの要望に基づく新規スコープ拡張（Issue #8・#9） | 確定済みM-BOMを対象とした**読み取り専用の派生ビュー**として追加した。計画BOM（`domain/planningBom.ts`の`explodePlanningBom()`）はリードタイムを考慮した時系列所要展開（単一品目・単一数量のWhat-if限定、`resolveAlternates()`で代替部品グループを解決してから展開する）、発注BOM（`domain/impactAnalysis.ts`の`buildPurchaseBom()`）はBUY品目まで展開した購買集計ビュー（呼び出し側が`reducer.effectiveMbomLines()`で代替部品を解決済みのM-BOMを渡す前提）。いずれも`production_system_sim`側のトランザクション（計画オーダ・発注等）とは連携せず、PLM側のマスタから導出するだけの機能に限定し、要件書1.3・11章の「サプライヤ側の詳細プロセスはスコープ外」という方針は変更していない。UIは既存7タブとは独立した新規タブ「発注BOM」「計画BOM」として追加した |
 
 ---
 
@@ -87,6 +88,8 @@
 | 文書・版数 | `domain/document.ts` | `ui/tabs/DocumentTab.tsx` |
 | マスタ連携（Sync） | `domain/masterSnapshot.ts` | `ui/tabs/SyncTab.tsx` |
 | 影響分析（Impact） | `domain/impactAnalysis.ts` | `ui/tabs/ImpactTab.tsx` |
+| 発注BOM（Purchase、PLM-EXT-13） | `domain/impactAnalysis.ts`（`buildPurchaseBom()`） | `ui/tabs/PurchaseBomTab.tsx` |
+| 計画BOM（Planning、PLM-EXT-13） | `domain/planningBom.ts` | `ui/tabs/PlanningBomTab.tsx` |
 
 画面構成は要件書10.1（自由探索がデフォルト）・10.2（ガイドモーメント）に従い、7ドメインのタブ＋
 `Onboarding.tsx`（初回起動時の5ステップガイド）というシンプルな2層構成にした。

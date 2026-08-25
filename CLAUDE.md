@@ -63,10 +63,11 @@ plm_systm_sim/
     │   ├── changeManagement.ts        # ECR/ECO/ECN状態遷移・承認集計・取消可否（6.2、7.5）
     │   ├── document.ts                 # 文書・版数（3章#5）
     │   ├── masterSnapshot.ts           # MasterSnapshot入出力・SSOT競合検知（3-wayマージ、7.3、7.4、9.6）
-    │   ├── impactAnalysis.ts           # BOM逆展開・影響分析・原価影響の簡易算出（7.1、7.7）
+    │   ├── impactAnalysis.ts           # BOM逆展開・影響分析・原価影響の簡易算出・発注BOM（7.1、7.7、PLM-EXT-13）
+    │   ├── planningBom.ts               # 計画BOM：確定済みM-BOMの時系列所要展開（PLM-EXT-13）
     │   ├── reducer.ts                  # useReducer用reducer。actionを各モジュールへディスパッチ
     │   ├── presets.ts                  # 教材用サンプルデータ（木製イス／自転車、4章）
-    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（61件）
+    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（76件）
     └── ui/                        # 画面（design.md §5）
         ├── App.tsx                    # タブナビゲーション＋オンボーディングの保持
         ├── Onboarding.tsx              # 初回起動時の5ステップガイド（要件書10.2）
@@ -76,11 +77,12 @@ plm_systm_sim/
         │   ├── MbomFlattenAnimation.tsx    # オンボーディングステップ3限定：脚部ユニット消滅→
         │   │                              # フラット化のCSSトランジション（要件書10.3）
         │   └── Banner.tsx                 # エラー・警告・情報バナー
-        └── tabs/                       # 7ドメインの画面
+        └── tabs/                       # 9ドメインの画面
             ├── ItemsTab.tsx / EbomTab.tsx / MbomTab.tsx / ChangeManagementTab.tsx
-            └── DocumentTab.tsx / SyncTab.tsx / ImpactTab.tsx
+            ├── DocumentTab.tsx / SyncTab.tsx / ImpactTab.tsx
+            └── PurchaseBomTab.tsx / PlanningBomTab.tsx    # 発注BOM／計画BOM（PLM-EXT-13）
 
-e2e/                              # Playwright + axe-core（オンボーディング・7タブ横断・ECRフロー・a11y）
+e2e/                              # Playwright + axe-core（オンボーディング・9タブ横断・ECRフロー・a11y）
 ```
 
 ## コマンド
@@ -91,7 +93,7 @@ npm run dev          # 開発サーバー起動（ルート配信）
 npm run build        # 型チェック（tsc -b）＋ビルド（vite build、GitHub Pages用baseパス）
 npm run typecheck    # 型チェックのみ実行（tsc -b --noEmit）
 npm run lint         # eslint
-npm test             # vitestによる自動テスト全件実行（61件、要件書8章の42ユースケース相当）
+npm test             # vitestによる自動テスト全件実行（76件、要件書8章の42ユースケース相当＋PLM-EXT-13分）
 npx vitest run <path> # 特定テストのみ実行（例: npx vitest run src/domain/__tests__/mbom.test.ts）
 npm run preview      # build成果物をGitHub Pages相当のbaseパスで動作確認
 npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリティ自動検査（npm run devを自動起動）
@@ -117,23 +119,27 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 
 ## 現在の実装状況
 
-**要件書（Rev.H）の全ドメイン（品目・E-BOM・M-BOM・変更管理・文書・マスタ連携・影響分析）を実装済み。**
+**要件書（Rev.H）の全ドメイン（品目・E-BOM・M-BOM・変更管理・文書・マスタ連携・影響分析）に加え、
+要件書のスコープ外の新規機能である発注BOM・計画BOM（PLM-EXT-13、Issue #8・#9）を実装済み。**
 
-- `src/domain/`：8モジュール（`item.ts`・`ebom.ts`・`mbom.ts`・`changeManagement.ts`・`document.ts`・
-  `masterSnapshot.ts`・`impactAnalysis.ts`）＋`reducer.ts`（`structuredClone`した状態を各ドメイン
-  モジュールへ渡し、モジュール側が直接書き換える設計）を実装済み。教材データは`presets.ts`に
-  木製イす（`createWoodenChairDemoState()`、脚部ユニットグループ・座面バリアント・脚の代替部品
-  グループを含む）・自転車（`bicycleMasterSnapshot`、4階層BOM）の2題材を用意
-- `src/domain/__tests__/`：61件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
-  IMPACT/ALT/VARIANT、計42件相当）を検証済み
-- `src/ui/`：7ドメインのタブ画面＋木製イすの5ステップオンボーディングツアー（要件書10.2の台本どおり、
+- `src/domain/`：9モジュール（`item.ts`・`ebom.ts`・`mbom.ts`・`changeManagement.ts`・`document.ts`・
+  `masterSnapshot.ts`・`impactAnalysis.ts`・`planningBom.ts`）＋`reducer.ts`（`structuredClone`した
+  状態を各ドメインモジュールへ渡し、モジュール側が直接書き換える設計）を実装済み。教材データは
+  `presets.ts`に木製イす（`createWoodenChairDemoState()`、脚部ユニットグループ・座面バリアント・脚の
+  代替部品グループを含む）・自転車（`bicycleMasterSnapshot`、4階層BOM）の2題材を用意
+- 発注BOM（`impactAnalysis.buildPurchaseBom()`）・計画BOM（`planningBom.explodePlanningBom()`）は
+  確定済みM-BOMを対象とした読み取り専用の派生ビュー。いずれも代替部品グループ
+  （`mbom.resolveAlternates()`）を解決してから展開することで二重計上を防いでいる（PLM-EXT-13）
+- `src/domain/__tests__/`：76件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
+  IMPACT/ALT/VARIANT、計42件相当）＋発注BOM・計画BOMのテストを検証済み
+- `src/ui/`：9ドメインのタブ画面＋木製イすの5ステップオンボーディングツアー（要件書10.2の台本どおり、
   脚部ユニットのハイライト→M-BOM変換のライブデモを含む）を実装済み。ステップ3の変換操作では
   `MbomFlattenAnimation`が脚部ユニット消滅→フラット化をCSSトランジションで可視化する
   （`prefers-reduced-motion: reduce`時は即時切替、要件書10.3）。`App.tsx`は`useReducer`で
   reducerを保持し、タブ切り替えとオンボーディング表示の制御のみを行う
-- `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、7タブ横断のナビゲーション、
+- `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、9タブ横断のナビゲーション、
   ECR→ECO→ECN→クローズの一連の操作フロー、アクセシビリティスキャン（critical/serious違反ゼロ）を
-  ブラウザで確認済み（7件、全件green）
+  ブラウザで確認済み（9件、全件green）
 - `.github/workflows/`：`test.yml`（PR gate）・`deploy.yml`（GitHub Pages自動デプロイ）・
   `pr-preview.yml`（PRプレビュー配信）を整備済み
 
@@ -144,8 +150,6 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 
 | ドメイン | 件名 | 費用対効果 | 概要 |
 |---|---|---|---|
-| 発注（新規） | 発注BOM（購買ビュー）の追加（[Issue #8](https://github.com/yoheitaniguchi/plm_systm_sim/issues/8)） | 中〜高 | M-BOMをBUY品目まで展開し、仕入先・単価・リードタイムを集計する読み取り専用タブ「発注BOM」を新設する。発注プロセス自体（発注書起票・受入検査等）は要件書1.3・11章のスコープ外方針を維持し、既存M-BOMを購買の目で読むレポートに限定する |
-| 計画（新規） | 計画BOM（時系列BOM展開）の追加（[Issue #9](https://github.com/yoheitaniguchi/plm_systm_sim/issues/9)） | 中〜高 | 確定済みM-BOMを対象に、リードタイムを考慮した所要展開（needByDay/startByDay）を算出する読み取り専用タブ「計画BOM」を新設する。単一品目・単一数量のWhat-if展開に限定し、`production_system_sim`側の計画オーダ（トランザクション）連携は対象外 |
 | 基盤（CI） | CI継続確認 | 高 | `.github/workflows/`（test.yml・deploy.yml・pr-preview.yml）が全PRで正しく動作し続けているかの継続確認 |
 | 影響分析 | 原価影響のUI導線強化 | 中（`ImpactTab.tsx`は現状、代替部品切替の前後比較のみ。ECOのbefore/after BOMを明示的に比較する導線が無い） | ECOごとにbeforeBom（起票時点のスナップショット）を保持し、クローズ前後の原価影響をECR起票画面から直接確認できるようにする |
 | マスタ | localStorage永続化 | 低〜中（実装コスト自体は低いが、要件書2章「永続化なし・単一セッション」という設計方針そのものの転換になるため、着手前に方針変更の可否をユーザーに確認する必要がある） | ブラウザリロードで状態が消える現状を、localStorageへの自動保存で解消する案 |

@@ -78,11 +78,11 @@ test.describe('free exploration', () => {
     await page.getByRole('button', { name: 'スキップ' }).click();
   });
 
-  test('navigates across all 7 domain tabs without runtime errors', async ({ page }) => {
+  test('navigates across all 9 domain tabs without runtime errors', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
-    for (const label of ['品目', 'E-BOM', 'M-BOM', '変更管理', '文書', '連携', '影響分析']) {
+    for (const label of ['品目', 'E-BOM', 'M-BOM', '変更管理', '文書', '連携', '影響分析', '発注BOM', '計画BOM']) {
       await page.getByRole('button', { name: label, exact: true }).click();
       await expect(page.locator('main')).toContainText(/./);
     }

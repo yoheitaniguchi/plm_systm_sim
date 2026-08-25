@@ -253,6 +253,13 @@ button {
   margin-left: 0.4rem;
 }
 
+.badge--warning {
+  background: var(--color-error-bg);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  margin-left: 0.4rem;
+}
+
 .banner {
   display: flex;
   align-items: center;
