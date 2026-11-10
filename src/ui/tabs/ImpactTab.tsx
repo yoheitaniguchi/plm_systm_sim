@@ -23,6 +23,11 @@ export function ImpactTab({ state, onRequestEcr }: ImpactTabProps) {
 
   const lines = bomType === 'E' ? currentEbomLines(state.bomLines) : currentMbomLines(state.bomLines);
   const impactedItemIds = result ? [...new Set(result.map((r) => r.parentItemId))] : [];
+  // 共通部品（複数の親を持つ部品）では、whereUsed()が上位の同じ品目を経路の数だけ返す
+  // （例：ボルト→フレーム部／駆動部／制御盤→コンベア装置×3）。一覧では「深さ＋品目」で重複を除く。
+  const uniqueResult = result
+    ? result.filter((r, idx) => result.findIndex((o) => o.parentItemId === r.parentItemId && o.depth === r.depth) === idx)
+    : [];
 
   const defaultMbom = resolveAlternates(currentMbomLines(state.bomLines), {});
   const overriddenMbom = effectiveMbomLines(state);
@@ -99,8 +104,9 @@ export function ImpactTab({ state, onRequestEcr }: ImpactTabProps) {
       {result && (
         <>
           <h3>影響を受ける品目（UC-IMPACT-1/3）</h3>
+          <p className="muted">複数の経路でたどり着く品目は、深さごとに1回だけ表示します。</p>
           <ul className="plain-list">
-            {result.map((r) => (
+            {uniqueResult.map((r) => (
               <li key={`${r.parentItemId}-${r.depth}`}>
                 深さ{r.depth}: {r.parentItemId}
               </li>
