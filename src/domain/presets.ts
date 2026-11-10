@@ -1,4 +1,4 @@
-// 教材用サンプル製品（4章）：木製イス（基礎）・自転車（応用）。
+// 教材用サンプル製品（4章）：木製イス（基礎）・自転車（応用）・コンベア装置（PLM-EXT-15）。
 import { addEbomLine } from './ebom';
 import { createItem } from './item';
 import type { AppState } from './reducer';
@@ -62,6 +62,49 @@ export const bicycleMasterSnapshot: MasterSnapshot = {
   suppliers: [
     { supplierId: 'SUP-1', name: '木材屋' },
     { supplierId: 'SUP-2', name: '金物屋' },
+  ],
+};
+
+// コンベア装置（design.md PLM-EXT-15）。姉妹リポジトリ mini-simulator の実BOM（コンベア装置／フレーム部／
+// 駆動部／制御盤、鋼材・モーター・歯車・電装部品）を骨格に、品番を本リポジトリの流儀（4.3）へ読み替えた題材。
+// ボルト（PT-880）は3つの中間品から参照される共通部品で、BOM逆展開（影響分析）が複数の親を返す例に使う。
+//   コンベア装置 FG-800（内製・LT2）
+//     ├─ フレーム部 SA-810（内製・LT3）×1 ── 鋼材 RM-840 ×2、ボルト PT-880 ×8
+//     ├─ 駆動部 SA-820（内製・LT4）×1 ── モーター PT-850 ×1、歯車 PT-860 ×2、ボルト PT-880 ×4
+//     └─ 制御盤 SA-830（内製・LT2）×1 ── 電装部品 PT-870 ×3、ボルト PT-880 ×4
+// 品目構成・員数・リードタイムは mini-simulator 由来。ボルトの行・単価・売価・仕入先は mini-simulator に
+// 無いため本リポジトリで仮に定めた値。工順・作業区は空（BOP/BORの拡張で扱う）。
+export const conveyorMasterSnapshot: MasterSnapshot = {
+  version: 1,
+  items: [
+    { itemId: 'FG-800', name: 'コンベア装置', makeBuy: 'MAKE', leadTimeDays: 2, salesPrice: 60000 },
+    { itemId: 'SA-810', name: 'フレーム部', makeBuy: 'MAKE', leadTimeDays: 3 },
+    { itemId: 'SA-820', name: '駆動部', makeBuy: 'MAKE', leadTimeDays: 4 },
+    { itemId: 'SA-830', name: '制御盤', makeBuy: 'MAKE', leadTimeDays: 2 },
+    { itemId: 'RM-840', name: '鋼材', makeBuy: 'BUY', leadTimeDays: 5, purchasePrice: 2000, defaultSupplierId: 'SUP-1' },
+    { itemId: 'PT-850', name: 'モーター', makeBuy: 'BUY', leadTimeDays: 10, purchasePrice: 15000, defaultSupplierId: 'SUP-2' },
+    { itemId: 'PT-860', name: '歯車', makeBuy: 'BUY', leadTimeDays: 5, purchasePrice: 1500, defaultSupplierId: 'SUP-1' },
+    { itemId: 'PT-870', name: '電装部品', makeBuy: 'BUY', leadTimeDays: 4, purchasePrice: 3000, defaultSupplierId: 'SUP-2' },
+    { itemId: 'PT-880', name: 'ボルト', makeBuy: 'BUY', leadTimeDays: 3, purchasePrice: 30, defaultSupplierId: 'SUP-1' },
+  ],
+  bom: [
+    { parentItemId: 'FG-800', childItemId: 'SA-810', qtyPer: 1 },
+    { parentItemId: 'FG-800', childItemId: 'SA-820', qtyPer: 1 },
+    { parentItemId: 'FG-800', childItemId: 'SA-830', qtyPer: 1 },
+    { parentItemId: 'SA-810', childItemId: 'RM-840', qtyPer: 2 },
+    { parentItemId: 'SA-810', childItemId: 'PT-880', qtyPer: 8 },
+    { parentItemId: 'SA-820', childItemId: 'PT-850', qtyPer: 1 },
+    { parentItemId: 'SA-820', childItemId: 'PT-860', qtyPer: 2 },
+    { parentItemId: 'SA-820', childItemId: 'PT-880', qtyPer: 4 },
+    { parentItemId: 'SA-830', childItemId: 'PT-870', qtyPer: 3 },
+    { parentItemId: 'SA-830', childItemId: 'PT-880', qtyPer: 4 },
+  ],
+  routingSteps: [],
+  workCenters: [],
+  customers: [{ customerId: 'CUST-1', name: 'お客様A' }],
+  suppliers: [
+    { supplierId: 'SUP-1', name: '鋼材・機械部品商社' },
+    { supplierId: 'SUP-2', name: '電機部品商社' },
   ],
 };
 

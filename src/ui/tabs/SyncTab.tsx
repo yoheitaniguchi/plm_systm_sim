@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { bicycleMasterSnapshot, woodenChairMasterSnapshot } from '../../domain/presets';
+import { bicycleMasterSnapshot, conveyorMasterSnapshot, woodenChairMasterSnapshot } from '../../domain/presets';
 import type { AppAction, AppState } from '../../domain/reducer';
 import { Banner } from '../components/Banner';
 
@@ -40,6 +40,9 @@ export function SyncTab({ state, dispatch }: SyncTabProps) {
         </button>
         <button type="button" className="secondary-button" onClick={() => setImportText(JSON.stringify(bicycleMasterSnapshot, null, 2))}>
           自転車のサンプルを読み込む（応用）
+        </button>
+        <button type="button" className="secondary-button" onClick={() => setImportText(JSON.stringify(conveyorMasterSnapshot, null, 2))}>
+          コンベア装置のサンプルを読み込む（共通部品あり）
         </button>
       </div>
       <textarea

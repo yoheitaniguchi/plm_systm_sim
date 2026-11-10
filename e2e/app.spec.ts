@@ -100,6 +100,40 @@ test.describe('free exploration', () => {
   });
 });
 
+test.describe('conveyor preset (PLM-EXT-15)', () => {
+  test('loads the conveyor sample, shows the 3-level E-BOM, and lists every parent of the shared bolt', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') errors.push(msg.text());
+    });
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+
+    await page.getByRole('button', { name: '連携', exact: true }).click();
+    await page.getByRole('button', { name: 'コンベア装置のサンプルを読み込む（共通部品あり）' }).click();
+    await page.getByRole('button', { name: 'インポートする' }).click();
+
+    await page.getByRole('button', { name: 'E-BOM', exact: true }).click();
+    const tree = page.getByRole('tree');
+    await expect(tree.getByText('コンベア装置（FG-800）')).toBeVisible();
+    await expect(tree.getByText('駆動部（SA-820）')).toBeVisible();
+    await expect(tree.getByText('モーター（PT-850）')).toBeVisible();
+    await expect(tree.getByText('ボルト（PT-880）')).toHaveCount(3);
+
+    await page.getByRole('button', { name: '影響分析', exact: true }).click();
+    await page.getByLabel('対象品目').selectOption('PT-880');
+    await page.getByLabel('BOM種別').selectOption('E');
+    await page.getByRole('button', { name: 'どこで使われているか調べる（whereUsed）' }).click();
+    for (const parent of ['SA-810', 'SA-820', 'SA-830']) {
+      await expect(page.getByText(`深さ1: ${parent}`)).toBeVisible();
+    }
+    await expect(page.getByText('深さ2: FG-800')).toHaveCount(1);
+    expect(errors).toEqual([]);
+  });
+});
+
 test.describe('ECR → ECO → ECN → クローズ flow (UC-ECM-1/2)', () => {
   test('runs a minor change through to クローズ from the UI', async ({ page }) => {
     await page.goto('/');

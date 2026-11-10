@@ -1,6 +1,6 @@
 # PLMシミュレーター
 
-`production_system_sim`（生産管理トレーニングシミュレーター）と対称的な設計の、PLM（正確にはPDM＋ECM相当）学習・検証用シミュレーターです。品目ライフサイクル、E-BOM／M-BOMの構造差、ECR→ECO→ECNの変更管理、PLM⇄生産管理システムのマスタ連携（MasterSnapshot互換JSON）を、木製イス／自転車の教材データを操作しながら学べます。
+`production_system_sim`（生産管理トレーニングシミュレーター）と対称的な設計の、PLM（正確にはPDM＋ECM相当）学習・検証用シミュレーターです。品目ライフサイクル、E-BOM／M-BOMの構造差、ECR→ECO→ECNの変更管理、PLM⇄生産管理システムのマスタ連携（MasterSnapshot互換JSON）を、木製イス／自転車／コンベア装置の教材データを操作しながら学べます。
 
 詳細な要件は `PLM_simulator_requirements.md`（Rev.H）を、実装方針・設計判断は `docs/design.md` を、
 Claude Codeでの開発ガイドは `CLAUDE.md` を参照してください。
@@ -45,7 +45,7 @@ src/
     masterSnapshot.ts      # MasterSnapshotの取り込み・書き出し・SSOT競合検知（3-wayマージ）
     impactAnalysis.ts      # BOM逆展開・影響分析・原価影響の簡易算出
     reducer.ts              # 全ドメインを束ねるreducer（useReducer用）
-    presets.ts              # 教材用サンプルデータ（木製イス／自転車）
+    presets.ts              # 教材用サンプルデータ（木製イス／自転車／コンベア装置）
     __tests__/              # vitest
   ui/
     App.tsx                 # タブナビゲーション＋オンボーディング

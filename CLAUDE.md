@@ -10,7 +10,8 @@
 PLM（正確にはPDM＋ECM相当）の中核概念——品目ライフサイクル、E-BOM／M-BOMの構造差、ECR→ECO→ECNの
 変更管理、PLM⇄生産管理システムのマスタ連携——を、実際に操作しながら学べる教材シミュレーター。
 木製イス（`PLM_simulator_requirements.md` §4.1、2階層BOM＋E-BOM限定の「脚部ユニット」機能グループ）を
-基礎題材に、自転車（§4.2、4階層BOM）を応用題材として、品目・E-BOM・M-BOM・変更管理・文書・
+基礎題材に、自転車（§4.2、4階層BOM）を応用題材、コンベア装置（design.md PLM-EXT-15、共通部品を含む3階層BOM）を
+追加題材として、品目・E-BOM・M-BOM・変更管理・文書・
 マスタ連携・影響分析の7ドメインを横断して体験できる。
 
 対象読者は開発チームメンバー。商用製品ではなく教材。
@@ -66,8 +67,8 @@ plm_systm_sim/
     │   ├── impactAnalysis.ts           # BOM逆展開・影響分析・原価影響の簡易算出・発注BOM（7.1、7.7、PLM-EXT-13）
     │   ├── planningBom.ts               # 計画BOM：確定済みM-BOMの時系列所要展開（PLM-EXT-13）
     │   ├── reducer.ts                  # useReducer用reducer。actionを各モジュールへディスパッチ
-    │   ├── presets.ts                  # 教材用サンプルデータ（木製イス／自転車、4章）
-    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（76件）
+    │   ├── presets.ts                  # 教材用サンプルデータ（木製イス／自転車は4章、コンベア装置はPLM-EXT-15）
+    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（94件）
     └── ui/                        # 画面（design.md §5）
         ├── App.tsx                    # タブナビゲーション＋オンボーディングの保持
         ├── Onboarding.tsx              # 初回起動時の5ステップガイド（要件書10.2）
@@ -93,7 +94,7 @@ npm run dev          # 開発サーバー起動（ルート配信）
 npm run build        # 型チェック（tsc -b）＋ビルド（vite build、GitHub Pages用baseパス）
 npm run typecheck    # 型チェックのみ実行（tsc -b --noEmit）
 npm run lint         # eslint
-npm test             # vitestによる自動テスト全件実行（83件、要件書8章の42ユースケース相当＋PLM-EXT-13・14分）
+npm test             # vitestによる自動テスト全件実行（94件、要件書8章の42ユースケース相当＋PLM-EXT-13・14・15分）
 npx vitest run <path> # 特定テストのみ実行（例: npx vitest run src/domain/__tests__/mbom.test.ts）
 npm run preview      # build成果物をGitHub Pages相当のbaseパスで動作確認
 npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリティ自動検査（npm run devを自動起動）
@@ -127,7 +128,9 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   `masterSnapshot.ts`・`impactAnalysis.ts`・`planningBom.ts`）＋`reducer.ts`（`structuredClone`した
   状態を各ドメインモジュールへ渡し、モジュール側が直接書き換える設計）を実装済み。教材データは
   `presets.ts`に木製イす（`createWoodenChairDemoState()`、脚部ユニットグループ・座面バリアント・脚の
-  代替部品グループを含む）・自転車（`bicycleMasterSnapshot`、4階層BOM）の2題材を用意
+  代替部品グループを含む）・自転車（`bicycleMasterSnapshot`、4階層BOM）・コンベア装置
+  （`conveyorMasterSnapshot`、`mini-simulator`の実BOMが骨格、共通部品ボルトを含む3階層BOM、工順は空。
+  PLM-EXT-15）の3題材を用意
 - 発注BOM（`impactAnalysis.buildPurchaseBom()`）・計画BOM（`planningBom.explodePlanningBom()`）は
   確定済みM-BOMを対象とした読み取り専用の派生ビュー。いずれも代替部品グループ
   （`mbom.resolveAlternates()`）を解決してから展開することで二重計上を防いでいる（PLM-EXT-13）
@@ -135,8 +138,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   ディスパッチ時（`reducer.effectiveMbomLines()`を`structuredClone`）に記録し、`ImpactTab.tsx`の
   「ECRごとの原価影響（起票時点比較）」から`computeCostImpact()`でクローズ前後の原価差分を確認できる
   （PLM-EXT-14）。既存の代替部品切替の前後比較機能は維持したまま追加した
-- `src/domain/__tests__/`：83件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
-  IMPACT/ALT/VARIANT、計42件相当）＋発注BOM・計画BOM・ECOのbefore/after BOM比較のテストを検証済み
+- `src/domain/__tests__/`：94件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
+  IMPACT/ALT/VARIANT、計42件相当）＋発注BOM・計画BOM・ECOのbefore/after BOM比較・コンベア装置プリセットのテストを検証済み
 - `src/ui/`：9ドメインのタブ画面＋木製イすの5ステップオンボーディングツアー（要件書10.2の台本どおり、
   脚部ユニットのハイライト→M-BOM変換のライブデモを含む）を実装済み。ステップ3の変換操作では
   `MbomFlattenAnimation`が脚部ユニット消滅→フラット化をCSSトランジションで可視化する
@@ -144,7 +147,7 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   reducerを保持し、タブ切り替えとオンボーディング表示の制御のみを行う
 - `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、9タブ横断のナビゲーション、
   ECR→ECO→ECN→クローズの一連の操作フロー、アクセシビリティスキャン（critical/serious違反ゼロ）を
-  ブラウザで確認済み（9件、全件green）
+  ブラウザで確認済み（10件、全件green）
 - `.github/workflows/`：`test.yml`（PR gate）・`deploy.yml`（GitHub Pages自動デプロイ）・
   `pr-preview.yml`（PRプレビュー配信）を整備済み
 
