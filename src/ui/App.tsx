@@ -1,6 +1,7 @@
 import { useReducer, useState } from 'react';
 import { createWoodenChairDemoState } from '../domain/presets';
 import { reducer } from '../domain/reducer';
+import { currentOperations } from '../domain/operation';
 import { Banner } from './components/Banner';
 import { Onboarding } from './Onboarding';
 import { ChangeManagementTab } from './tabs/ChangeManagementTab';
@@ -97,7 +98,7 @@ export function App() {
           onConvert={() =>
             dispatch({
               type: 'mbom/convert',
-              routingMap: Object.fromEntries(state.passthrough.routingSteps.map((s) => [s.itemId, s.workCenter])),
+              routingMap: Object.fromEntries(currentOperations(state.operations).map((o) => [o.itemId, o.workCenter])),
               effectiveFromDay: state.currentDay,
               configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' },
             })

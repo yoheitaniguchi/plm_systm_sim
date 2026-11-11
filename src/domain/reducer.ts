@@ -7,6 +7,7 @@ import * as ebom from './ebom';
 import * as item from './item';
 import * as masterSnapshot from './masterSnapshot';
 import * as mbom from './mbom';
+import * as operation from './operation';
 import type {
   ApproverDecision,
   ChangeReason,
@@ -17,6 +18,7 @@ import type {
   ItemCodePrefix,
   ItemLifecycleStatus,
   MasterSnapshot,
+  Operation,
   Passthrough,
   PlmBomLine,
   PlmItem,
@@ -31,6 +33,7 @@ export interface AppState {
   changes: EngineeringChange[];
   documents: DesignDocument[];
   configurations: Configuration[];
+  operations: Operation[]; // 工程（BOP）。全品目・全版が混在。現在有効な工程が工順として書き出される（PLM-EXT-17）
   passthrough: Passthrough;
   alternateOverrides: Record<string, string>; // alternateGroupId -> childItemId（4.5・7.6）
   syncSession: SyncSession | null;
@@ -50,7 +53,8 @@ export function createInitialState(): AppState {
     changes: [],
     documents: [],
     configurations: [],
-    passthrough: { routingSteps: [], workCenters: [], customers: [], suppliers: [] },
+    operations: [],
+    passthrough: { workCenters: [], customers: [], suppliers: [] },
     alternateOverrides: {},
     syncSession: null,
     syncEvents: [],
@@ -65,6 +69,13 @@ export function createInitialState(): AppState {
 function nextId(draft: AppState, prefix: string): string {
   draft.idCounter += 1;
   return `${prefix}-${draft.idCounter}`;
+}
+
+// 取り込みやプリセットで使われている工程IDと衝突しないIDを発番する
+function nextOperationId(draft: AppState): string {
+  let id = nextId(draft, 'OPN');
+  while (draft.operations.some((o) => o.operationId === id)) id = nextId(draft, 'OPN');
+  return id;
 }
 
 export type AppAction =
@@ -90,6 +101,16 @@ export type AppAction =
       configuration?: { baseItemId: string; selections: Record<string, string>; resolvedItemId: string };
     }
   | { type: 'mbom/setAlternateOverride'; alternateGroupId: string; childItemId: string }
+  | { type: 'operation/add'; input: Omit<operation.NewOperationInput, 'operationId'> }
+  | {
+      type: 'operation/revise';
+      operationId: string;
+      patch: operation.OperationPatch;
+      effectiveFromDay: number;
+      changeId?: string;
+    }
+  | { type: 'operation/reorder'; itemId: string; opCodesInOrder: string[]; effectiveFromDay: number; changeId?: string }
+  | { type: 'operation/end'; operationId: string; effectiveToDay: number }
   | { type: 'change/create'; input: changeManagement.NewChangeRequestInput }
   | { type: 'change/submitForReview'; changeId: string }
   | { type: 'change/recordApproval'; changeId: string; decision: ApproverDecision }
@@ -131,6 +152,7 @@ function applyAction(draft: AppState, action: AppAction): void {
       const result = masterSnapshot.importMasterSnapshotFromJson(action.json, action.importedAtDay);
       draft.items = result.items;
       draft.bomLines = result.bomLines;
+      draft.operations = result.operations;
       draft.passthrough = result.passthrough;
       draft.syncSession = result.session;
       draft.currentDay = action.importedAtDay;
@@ -221,6 +243,41 @@ function applyAction(draft: AppState, action: AppAction): void {
         [action.alternateGroupId]: action.childItemId,
       });
       draft.alternateOverrides[action.alternateGroupId] = action.childItemId;
+      break;
+    }
+
+    case 'operation/add': {
+      operation.addOperation(draft.operations, draft.items, draft.passthrough.workCenters, {
+        ...action.input,
+        operationId: nextOperationId(draft),
+      });
+      break;
+    }
+    case 'operation/revise': {
+      operation.reviseOperation(
+        draft.operations,
+        draft.passthrough.workCenters,
+        action.operationId,
+        action.patch,
+        nextOperationId(draft),
+        action.effectiveFromDay,
+        action.changeId,
+      );
+      break;
+    }
+    case 'operation/reorder': {
+      operation.reorderOperations(
+        draft.operations,
+        action.itemId,
+        action.opCodesInOrder,
+        () => nextOperationId(draft),
+        action.effectiveFromDay,
+        action.changeId,
+      );
+      break;
+    }
+    case 'operation/end': {
+      operation.endOperation(draft.operations, action.operationId, action.effectiveToDay);
       break;
     }
 

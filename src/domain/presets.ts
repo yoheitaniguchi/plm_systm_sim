@@ -1,6 +1,7 @@
 // 教材用サンプル製品（4章）：木製イス（基礎）・自転車（応用）・コンベア装置（PLM-EXT-15）。
 import { addEbomLine } from './ebom';
 import { createItem } from './item';
+import { operationsFromRoutingSteps } from './operation';
 import type { AppState } from './reducer';
 import { createInitialState } from './reducer';
 import type { MasterSnapshot, PlmBomLine } from './types';
@@ -23,9 +24,10 @@ export const woodenChairMasterSnapshot: MasterSnapshot = {
     { parentItemId: 'FG-100', childItemId: 'PT-500', qtyPer: 8 },
   ],
   routingSteps: [
-    { itemId: 'SA-200', stepNo: 1, workCenter: 'WC-CUT', stdTimeMin: 18 },
-    { itemId: 'FG-100', stepNo: 1, workCenter: 'WC-ASM', stdTimeMin: 30 },
-    { itemId: 'FG-100', stepNo: 2, workCenter: 'WC-INS', stdTimeMin: 12 },
+    // 順序（stepNo）はproduction_system_simの木製イスと同じ10刻み（PLM-EXT-17）
+    { itemId: 'SA-200', stepNo: 10, workCenter: 'WC-CUT', stdTimeMin: 18 },
+    { itemId: 'FG-100', stepNo: 10, workCenter: 'WC-ASM', stdTimeMin: 30 },
+    { itemId: 'FG-100', stepNo: 20, workCenter: 'WC-INS', stdTimeMin: 12 },
   ],
   workCenters: [
     { workCenter: 'WC-CUT', ratePerHour: 2400, capacityMinPerDay: 480 },
@@ -113,8 +115,18 @@ export const conveyorMasterSnapshot: MasterSnapshot = {
 // （UC-UI-1のオンボーディングがすぐに木製イスのE-BOM構造を見せられるようにするため）。
 export function createWoodenChairDemoState(): AppState {
   const state = createInitialState();
+  // 工程（BOP、PLM-EXT-17）。既定状態は取り込み（sync/import）を経由しないため、ここで工順から工程を作り、
+  // 要件書4.1の記載どおりに名称を付ける（MasterSnapshotには工程の名称が無い）。
+  const operationNames: Record<string, string> = {
+    'SA-200:OP10': '切断',
+    'FG-100:OP10': '組立',
+    'FG-100:OP20': '検査',
+  };
+  state.operations = operationsFromRoutingSteps(woodenChairMasterSnapshot.routingSteps).map((o) => ({
+    ...o,
+    name: operationNames[`${o.itemId}:${o.opCode}`] ?? o.name,
+  }));
   state.passthrough = {
-    routingSteps: woodenChairMasterSnapshot.routingSteps,
     workCenters: woodenChairMasterSnapshot.workCenters,
     customers: woodenChairMasterSnapshot.customers,
     suppliers: woodenChairMasterSnapshot.suppliers,

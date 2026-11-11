@@ -66,9 +66,10 @@ plm_systm_sim/
     │   ├── masterSnapshot.ts           # MasterSnapshot入出力・SSOT競合検知（3-wayマージ、7.3、7.4、9.6）
     │   ├── impactAnalysis.ts           # BOM逆展開・影響分析・原価影響の簡易算出・発注BOM（7.1、7.7、PLM-EXT-13）
     │   ├── planningBom.ts               # 計画BOM：確定済みM-BOMの時系列所要展開（PLM-EXT-13）
+    │   ├── operation.ts                 # 工程（BOP）：追加・改訂・順序変更・終了、工順との相互変換（PLM-EXT-17）
     │   ├── reducer.ts                  # useReducer用reducer。actionを各モジュールへディスパッチ
     │   ├── presets.ts                  # 教材用サンプルデータ（木製イス／自転車は4章、コンベア装置はPLM-EXT-15）
-    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（106件）
+    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（129件）
     └── ui/                        # 画面（design.md §5）
         ├── App.tsx                    # タブナビゲーション＋オンボーディングの保持
         ├── Onboarding.tsx              # 初回起動時の5ステップガイド（要件書10.2）
@@ -94,7 +95,7 @@ npm run dev          # 開発サーバー起動（ルート配信）
 npm run build        # 型チェック（tsc -b）＋ビルド（vite build、GitHub Pages用baseパス）
 npm run typecheck    # 型チェックのみ実行（tsc -b --noEmit）
 npm run lint         # eslint
-npm test             # vitestによる自動テスト全件実行（106件、要件書8章の42ユースケース相当＋PLM-EXT-13〜16分）
+npm test             # vitestによる自動テスト全件実行（129件、要件書8章の42ユースケース相当＋PLM-EXT-13〜17分）
 npx vitest run <path> # 特定テストのみ実行（例: npx vitest run src/domain/__tests__/mbom.test.ts）
 npm run preview      # build成果物をGitHub Pages相当のbaseパスで動作確認
 npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリティ自動検査（npm run devを自動起動）
@@ -124,8 +125,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 要件書のスコープ外の新規機能である発注BOM・計画BOM（PLM-EXT-13、Issue #8・#9）、ECOのbefore/after BOM
 比較（PLM-EXT-14、Issue #4）を実装済み。**
 
-- `src/domain/`：9モジュール（`item.ts`・`ebom.ts`・`mbom.ts`・`changeManagement.ts`・`document.ts`・
-  `masterSnapshot.ts`・`impactAnalysis.ts`・`planningBom.ts`）＋`reducer.ts`（`structuredClone`した
+- `src/domain/`：10モジュール（`item.ts`・`ebom.ts`・`mbom.ts`・`changeManagement.ts`・`document.ts`・
+  `masterSnapshot.ts`・`impactAnalysis.ts`・`planningBom.ts`・`operation.ts`）＋`reducer.ts`（`structuredClone`した
   状態を各ドメインモジュールへ渡し、モジュール側が直接書き換える設計）を実装済み。教材データは
   `presets.ts`に木製イす（`createWoodenChairDemoState()`、脚部ユニットグループ・座面バリアント・脚の
   代替部品グループを含む）・自転車（`bicycleMasterSnapshot`、4階層BOM）・コンベア装置
@@ -138,7 +139,7 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   ディスパッチ時（`reducer.effectiveMbomLines()`を`structuredClone`）に記録し、`ImpactTab.tsx`の
   「ECRごとの原価影響（起票時点比較）」から`computeCostImpact()`でクローズ前後の原価差分を確認できる
   （PLM-EXT-14）。既存の代替部品切替の前後比較機能は維持したまま追加した
-- `src/domain/__tests__/`：106件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
+- `src/domain/__tests__/`：129件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
   IMPACT/ALT/VARIANT、計42件相当）＋発注BOM・計画BOM・ECOのbefore/after BOM比較・コンベア装置プリセット・M-BOM再変換（PLM-EXT-16）のテストを検証済み
 - `src/ui/`：9ドメインのタブ画面＋木製イすの5ステップオンボーディングツアー（要件書10.2の台本どおり、
   脚部ユニットのハイライト→M-BOM変換のライブデモを含む）を実装済み。ステップ3の変換操作では
@@ -177,6 +178,10 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 - **M-BOMの再変換は突き合わせて取り込む**：`mbom/convert`は変換結果を足すだけにせず、
   `mbom.mergeConvertedMbom()`で同じ変換範囲（構成なし／確定品目ごと）の既存行と突き合わせる。無くなった行は
   旧版化し、同じ`bomLineId`の現行行は残し、新しい行だけ追加する（design.md 追加決定PLM-EXT-16参照）
+- **工順の正本は工程（`AppState.operations`）**：`passthrough`に工順は無い。工程はBOM行と同じ「版数＋有効日」で
+  改訂・順序変更・終了の履歴を残し、参照には版や順序で変わらない工程コード（`opCode`）を使う。作業区はPLMで
+  追加せず、取り込み済みのものだけを指定できる。書き出すのは現在有効な工程の工順の項目だけ
+  （design.md 追加決定PLM-EXT-17参照。工程・資源の画面、`processStep`の再定義、工順の3-wayマージは未実装）
 - **承認集計は「全員承認必須・1人でも却下で即却下」**（`changeManagement.aggregateApprovalStatus()`）。
   多数決や過半数ではない
 - **取消可否はSyncEventの有無で決まる**：ECOがエクスポート済み（`SyncEvent.status === '送信済'`）なら

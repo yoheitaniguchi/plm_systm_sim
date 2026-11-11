@@ -1,4 +1,5 @@
 // マスタ連携（Sync）ドメイン：MasterSnapshotの取り込み・書き出し、SSOT競合検知（3章#6、7.3、7.4、9章）。
+import { checkOperations, operationsFromRoutingSteps, routingStepsFromOperations } from './operation';
 import type {
   BomLine,
   ConflictDetail,
@@ -6,9 +7,11 @@ import type {
   ExportPreflightResult,
   ItemMaster,
   MasterSnapshot,
+  Operation,
   Passthrough,
   PlmBomLine,
   PlmItem,
+  RoutingStep,
   SyncSession,
 } from './types';
 
@@ -55,6 +58,38 @@ function assertBomLine(raw: unknown, index: number): BomLine {
   return { parentItemId: r.parentItemId, childItemId: r.childItemId, qtyPer: r.qtyPer };
 }
 
+// 工順の行。PLMが工程（Operation）として取り込むため、形を検査する（PLM-EXT-17）。
+// 検査の基準はproduction_system_sim側のmasterIOに合わせる（stepNoは正の整数、時間は0以上）。
+// 段取り時間（setupMin）は任意項目で、あれば落とさずに保持する。
+function assertRoutingStep(raw: unknown, index: number): RoutingStep {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error(`routingSteps[${index}] が不正です`);
+  }
+  const r = raw as Record<string, unknown>;
+  if (!isNonEmptyString(r.itemId)) throw new Error(`routingSteps[${index}].itemId が不正です`);
+  if (typeof r.stepNo !== 'number' || !Number.isInteger(r.stepNo) || r.stepNo <= 0) {
+    throw new Error(`routingSteps[${index}].stepNo は正の整数である必要があります`);
+  }
+  if (!isNonEmptyString(r.workCenter)) throw new Error(`routingSteps[${index}].workCenter が不正です`);
+  if (typeof r.stdTimeMin !== 'number' || !Number.isFinite(r.stdTimeMin) || r.stdTimeMin < 0) {
+    throw new Error(`routingSteps[${index}].stdTimeMin は0以上の数値である必要があります`);
+  }
+  const step: RoutingStep = {
+    itemId: r.itemId,
+    stepNo: r.stepNo,
+    workCenter: r.workCenter,
+    stdTimeMin: r.stdTimeMin,
+  };
+  // production_system_sim側と同じく、nullは未設定として扱う
+  if (r.setupMin !== undefined && r.setupMin !== null) {
+    if (typeof r.setupMin !== 'number' || !Number.isFinite(r.setupMin) || r.setupMin < 0) {
+      throw new Error(`routingSteps[${index}].setupMin は0以上の数値である必要があります`);
+    }
+    step.setupMin = r.setupMin;
+  }
+  return step;
+}
+
 // MasterSnapshot JSON のスキーマ検証（フィールド単位、最初のエラーで即時中断）。
 // 既知のフィールドだけを読み、それ以外のプロパティ（PLM独自の付加フィールド等）は無視する。
 export function parseMasterSnapshot(json: unknown): MasterSnapshot {
@@ -74,7 +109,7 @@ export function parseMasterSnapshot(json: unknown): MasterSnapshot {
     version: 1,
     items: r.items.map((i, idx) => assertItemMaster(i, idx)),
     bom: r.bom.map((l, idx) => assertBomLine(l, idx)),
-    routingSteps: r.routingSteps as MasterSnapshot['routingSteps'],
+    routingSteps: r.routingSteps.map((s, idx) => assertRoutingStep(s, idx)),
     workCenters: r.workCenters as MasterSnapshot['workCenters'],
     customers: r.customers as MasterSnapshot['customers'],
     suppliers: r.suppliers as MasterSnapshot['suppliers'],
@@ -129,6 +164,14 @@ export function assertSnapshotUsable(snapshot: MasterSnapshot): void {
 
   problems.push(...detectBomCycles(snapshot.bom));
 
+  // 同じ品目の中で工順の順序（stepNo）が重複していると、工程コード（OP＋stepNo）が一意にならない
+  const seenSteps = new Set<string>();
+  for (const step of snapshot.routingSteps) {
+    const key = `${step.itemId}:${step.stepNo}`;
+    if (seenSteps.has(key)) problems.push(`品目 ${step.itemId} の工順 ${step.stepNo} が重複しています`);
+    seenSteps.add(key);
+  }
+
   const itemIds = new Set(snapshot.items.map((i) => i.itemId));
   for (const line of snapshot.bom) {
     if (!itemIds.has(line.parentItemId)) {
@@ -145,8 +188,8 @@ export function assertSnapshotUsable(snapshot: MasterSnapshot): void {
 }
 
 // production_system_simからエクスポートされたMasterSnapshotを、PLM独自属性を
-// 付与してPLM内部形式に取り込む。routingSteps/workCenters/customers/suppliers
-// はPLMドメイン外のためそのまま保持し、後で書き出す際に「パススルー」する。
+// 付与してPLM内部形式に取り込む。routingStepsは工程（Operation）に変換して持つ（PLM-EXT-17）。
+// workCenters/customers/suppliersはPLMドメイン外のためそのまま保持し、後で書き出す際に「パススルー」する。
 // あわせてSyncSessionのベースラインを作成する（9.6のSSOT競合検知で使う）。
 export function importMasterSnapshot(
   snapshot: MasterSnapshot,
@@ -154,6 +197,7 @@ export function importMasterSnapshot(
 ): {
   items: PlmItem[];
   bomLines: PlmBomLine[];
+  operations: Operation[];
   passthrough: Passthrough;
   session: SyncSession;
 } {
@@ -171,8 +215,8 @@ export function importMasterSnapshot(
   return {
     items,
     bomLines,
+    operations: operationsFromRoutingSteps(snapshot.routingSteps),
     passthrough: {
-      routingSteps: snapshot.routingSteps,
       workCenters: snapshot.workCenters,
       customers: snapshot.customers,
       suppliers: snapshot.suppliers,
@@ -198,26 +242,16 @@ export function importMasterSnapshotFromJson(
 
 // エクスポート前の参照整合性チェック。production_system_sim側の
 // assertSnapshotUsable()はitems/bomを含むsnapshot全体を検証するため、
-// PLM側の変更（品目の即時廃却等）でroutingSteps/workCentersが指す
-// itemId/workCenterが宙に浮くと、production_system_sim側でインポート
+// PLM側の変更（品目の即時廃却等）で工程が指すitemId/workCenterが宙に浮いたり、
+// 同じ品目の中で順序（stepNo）が重複したりすると、production_system_sim側でインポート
 // 全体が拒否される。それをPLM側で事前に検出し、ユーザーに提示する。
 export function checkReferentialIntegrityBeforeExport(
   items: PlmItem[],
   _mbomLines: PlmBomLine[],
   passthrough: Passthrough,
+  operations: Operation[],
 ): string[] {
-  const problems: string[] = [];
-  const itemIds = new Set(items.map((i) => i.itemId));
-  const workCenterIds = new Set(passthrough.workCenters.map((w) => w.workCenter));
-
-  for (const step of passthrough.routingSteps) {
-    if (!itemIds.has(step.itemId)) {
-      problems.push(`工順が参照する品目 ${step.itemId} が品目マスタから削除されています`);
-    }
-    if (!workCenterIds.has(step.workCenter)) {
-      problems.push(`工順が参照する作業区 ${step.workCenter} が存在しません`);
-    }
-  }
+  const problems: string[] = checkOperations(operations, items, passthrough.workCenters);
   for (const item of items) {
     if (item.makeBuy === 'BUY' && !item.defaultSupplierId) {
       problems.push(`購買品目 ${item.itemId} に既定仕入先が未設定です（production_system_sim側の業務検証でエラーになります）`);
@@ -244,14 +278,15 @@ export function stripPlmOnlyBomFields(line: PlmBomLine): BomLine {
   return { parentItemId: line.parentItemId, childItemId: line.childItemId, qtyPer: line.qtyPer };
 }
 
-// ECOクローズ後、更新済みのM-BOM・品目を、取り込んだ際のpassthroughデータと
-// マージして新しいMasterSnapshotを組み立てる。routingSteps等はPLMでは編集しない
-// ため、そのまま素通しする（1.3節でスコープ外にした部分）。
+// ECOクローズ後、更新済みのM-BOM・品目・工程を、取り込んだ際のpassthroughデータと
+// マージして新しいMasterSnapshotを組み立てる。工順は現在有効な工程から作り（PLM-EXT-17）、
+// 作業区・得意先・仕入先はPLMでは編集しないため、そのまま素通しする。
 export function buildUpdatedMasterSnapshot(
   change: EngineeringChange,
   currentItems: PlmItem[],
   mbomLines: PlmBomLine[],
   passthrough: Passthrough,
+  operations: Operation[],
 ): MasterSnapshot {
   if (change.status !== 'クローズ') {
     throw new Error('クローズ前のECOはエクスポート不可');
@@ -259,7 +294,7 @@ export function buildUpdatedMasterSnapshot(
   if (change.effectiveFromDay === undefined) {
     throw new Error('有効日未設定のECOはエクスポート不可');
   }
-  const problems = checkReferentialIntegrityBeforeExport(currentItems, mbomLines, passthrough);
+  const problems = checkReferentialIntegrityBeforeExport(currentItems, mbomLines, passthrough, operations);
   if (problems.length > 0) {
     throw new Error(`エクスポートできません:\n- ${problems.join('\n- ')}`);
   }
@@ -269,6 +304,7 @@ export function buildUpdatedMasterSnapshot(
     items: currentItems.map(stripPlmOnlyItemFields),
     bom: mbomLines.filter((l) => !l.isEbomOnly).map(stripPlmOnlyBomFields),
     ...passthrough,
+    routingSteps: routingStepsFromOperations(operations),
   };
 }
 
@@ -371,10 +407,10 @@ export function preflightExport(
     }
   }
 
-  // passthrough（routingSteps/workCenters/customers/suppliers）は
-  // PLM側が一切編集しない（1.3節でスコープ外）ため、weTouchedは常にfalseになる。
+  // 作業区・得意先・仕入先（passthrough）はPLM側が一切編集しないため、weTouchedは常にfalseになる。
   // つまりconflictは原理的に起こらず、常にproduction_system_sim側の最新（current）を
-  // そのまま採用するだけでよい。ただしtheirsがbaselineと違えばautoMergedNotesに記録し、
+  // そのまま採用するだけでよい。工順（routingSteps）は工程としてPLMが持つが（PLM-EXT-17）、
+  // 3-wayマージへの組み込みは別途行うため、ここではまだ相手側の最新を採用する。ただしtheirsがbaselineと違えばautoMergedNotesに記録し、
   // 「PLMが把握していない間に何が変わったか」を可視化する（工順・作業区の追加等）。
   const passthroughChanged =
     JSON.stringify(session.baseline.routingSteps) !== JSON.stringify(current.routingSteps) ||
@@ -384,7 +420,7 @@ export function preflightExport(
   if (passthroughChanged) {
     autoMergedNotes.push('工順／作業区／得意先／仕入先のいずれかがproduction_system_sim側で変更されています（自動的に最新を採用）');
   }
-  const mergedPassthrough: Passthrough = {
+  const mergedPassthrough: Omit<MasterSnapshot, 'version' | 'items' | 'bom'> = {
     routingSteps: current.routingSteps,
     workCenters: current.workCenters,
     customers: current.customers,
