@@ -68,7 +68,7 @@ plm_systm_sim/
     │   ├── planningBom.ts               # 計画BOM：確定済みM-BOMの時系列所要展開（PLM-EXT-13）
     │   ├── reducer.ts                  # useReducer用reducer。actionを各モジュールへディスパッチ
     │   ├── presets.ts                  # 教材用サンプルデータ（木製イス／自転車は4章、コンベア装置はPLM-EXT-15）
-    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（101件）
+    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（106件）
     └── ui/                        # 画面（design.md §5）
         ├── App.tsx                    # タブナビゲーション＋オンボーディングの保持
         ├── Onboarding.tsx              # 初回起動時の5ステップガイド（要件書10.2）
@@ -94,7 +94,7 @@ npm run dev          # 開発サーバー起動（ルート配信）
 npm run build        # 型チェック（tsc -b）＋ビルド（vite build、GitHub Pages用baseパス）
 npm run typecheck    # 型チェックのみ実行（tsc -b --noEmit）
 npm run lint         # eslint
-npm test             # vitestによる自動テスト全件実行（101件、要件書8章の42ユースケース相当＋PLM-EXT-13〜16分）
+npm test             # vitestによる自動テスト全件実行（106件、要件書8章の42ユースケース相当＋PLM-EXT-13〜16分）
 npx vitest run <path> # 特定テストのみ実行（例: npx vitest run src/domain/__tests__/mbom.test.ts）
 npm run preview      # build成果物をGitHub Pages相当のbaseパスで動作確認
 npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリティ自動検査（npm run devを自動起動）
@@ -138,7 +138,7 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   ディスパッチ時（`reducer.effectiveMbomLines()`を`structuredClone`）に記録し、`ImpactTab.tsx`の
   「ECRごとの原価影響（起票時点比較）」から`computeCostImpact()`でクローズ前後の原価差分を確認できる
   （PLM-EXT-14）。既存の代替部品切替の前後比較機能は維持したまま追加した
-- `src/domain/__tests__/`：101件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
+- `src/domain/__tests__/`：106件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
   IMPACT/ALT/VARIANT、計42件相当）＋発注BOM・計画BOM・ECOのbefore/after BOM比較・コンベア装置プリセット・M-BOM再変換（PLM-EXT-16）のテストを検証済み
 - `src/ui/`：9ドメインのタブ画面＋木製イすの5ステップオンボーディングツアー（要件書10.2の台本どおり、
   脚部ユニットのハイライト→M-BOM変換のライブデモを含む）を実装済み。ステップ3の変換操作では

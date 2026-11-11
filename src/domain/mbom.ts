@@ -44,16 +44,22 @@ export function convertEbomToMbom(
 // ①変換結果に無くなった現行行は`effectiveToDay`を設定して旧版化し（履歴は消さない）、
 // ②変換結果と同じ`bomLineId`の現行行があればそのまま残し（`processStep`だけ最新の工順マップに合わせる）、
 // ③それ以外の変換結果を新しい行として追加する。
-// 変換範囲は「バリアント構成なしの変換」と「確定品目ごとの変換」（PLM-EXT-5のサフィックス）で分かれ、
+// 変換範囲は「バリアント構成なしの変換」と「確定品目ごとの変換」で分かれ、行の`mbomScope`に記録する
+// （`converted`の各行には呼び出し側が`scope`と同じ値を設定済みであること）。
 // ある範囲の再変換が別の範囲の行を旧版化することはない。
 export function mergeConvertedMbom(
   bomLines: PlmBomLine[],
   converted: PlmBomLine[],
-  isInScope: (line: PlmBomLine) => boolean,
+  scope: string | undefined,
   effectiveFromDay: number,
 ): { added: number; closed: number; kept: number } {
   const convertedIds = new Set(converted.map((l) => l.bomLineId));
-  const currentInScope = currentMbomLines(bomLines).filter(isInScope);
+  if (convertedIds.size !== converted.length) {
+    const seen = new Set<string>();
+    const dup = converted.find((l) => (seen.has(l.bomLineId) ? true : (seen.add(l.bomLineId), false)));
+    throw new Error(`変換元のE-BOM行IDが重複しているため変換できません（${dup?.bomLineId}）`);
+  }
+  const currentInScope = currentMbomLines(bomLines).filter((l) => l.mbomScope === scope);
 
   const toClose = currentInScope.filter((l) => !convertedIds.has(l.bomLineId));
   const tooEarly = toClose.find((l) => effectiveFromDay < l.effectiveFromDay);
