@@ -27,7 +27,8 @@ export function MbomTab({ state, dispatch }: MbomTabProps) {
   const [configId, setConfigId] = useState('');
 
   // 投入工程（PLM-EXT-18）。割り当ては工程タブで行い、ここでは表示と警告だけを出す
-  const inputIssues = checkInputOperations(resolvedMbomLines, state.operations);
+  // 件数は工程タブ・工程の終了の判定と同じく、代替で選ばれていない行も含む全現行行で数える
+  const inputIssues = checkInputOperations(rawMbomLines, state.operations);
   const invalidLineIds = new Set(inputIssues.map((i) => i.bomLineId));
   const inputOperationLabel = (line: { bomLineId: string; parentItemId: string; processStep?: string }) => {
     if (line.processStep === undefined || invalidLineIds.has(line.bomLineId)) return null;

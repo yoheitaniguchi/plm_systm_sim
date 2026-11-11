@@ -480,6 +480,53 @@ describe('input operation of M-BOM lines (PLM-EXT-18)', () => {
     expect(currentMbomLines(state.bomLines)).toHaveLength(5);
   });
 
+  it('carries the assignment over when the source E-BOM line is revised and re-converted', () => {
+    let state = convertedChair();
+    const leg = lineOf(state, 'FG-100', 'PT-400');
+    state = reducer(state, { type: 'mbom/assignOperation', bomLineId: leg.bomLineId, opCode: 'OP20' });
+    state = reducer(state, { type: 'ebom/reviseLine', bomLineId: 'E-5', patch: { qtyPer: 3 }, effectiveFromDay: 5 });
+    state = reducer(state, {
+      type: 'mbom/convert',
+      effectiveFromDay: 5,
+      configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' },
+    });
+    expect(state.lastError).toBeNull();
+    const revised = lineOf(state, 'FG-100', 'PT-400');
+    expect(revised.bomLineId).not.toBe(leg.bomLineId);
+    expect(revised).toMatchObject({ qtyPer: 3, processStep: 'OP20' });
+  });
+
+  it('refills an explicitly cleared assignment with the default on re-conversion', () => {
+    let state = convertedChair();
+    state = reducer(state, { type: 'mbom/assignOperation', bomLineId: lineOf(state, 'FG-100', 'PT-500').bomLineId });
+    state = reducer(state, {
+      type: 'mbom/convert',
+      effectiveFromDay: 0,
+      configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' },
+    });
+    expect(lineOf(state, 'FG-100', 'PT-500').processStep).toBe('OP10');
+  });
+
+  it('refuses to end an operation used only by an alternate line that is not currently selected', () => {
+    let state = convertedChair();
+    for (const child of ['SA-200', 'PT-400', 'PT-500']) {
+      state = reducer(state, { type: 'mbom/assignOperation', bomLineId: lineOf(state, 'FG-100', child).bomLineId, opCode: 'OP20' });
+    }
+    // 代替品B（PT-401）は既定では選ばれていないが、現行のM-BOM行としてOP10を指している
+    const assembly = currentOperations(state.operations, 'FG-100')[0];
+    const refused = reducer(state, { type: 'operation/end', operationId: assembly.operationId, effectiveToDay: 1 });
+    expect(refused.lastError).toContain('PT-401');
+  });
+
+  it('reports an assignment that points at an operation of another item as invalid', () => {
+    const state = convertedChair();
+    const lines = structuredClone(state.bomLines);
+    lines.find((l) => l.bomType === 'M' && l.childItemId === 'RM-300')!.processStep = 'OP20';
+    expect(checkInputOperations(lines, state.operations)).toEqual([
+      expect.objectContaining({ parentItemId: 'SA-200', childItemId: 'RM-300', kind: '無効', processStep: 'OP20' }),
+    ]);
+  });
+
   it('rejects an operation that is not a current operation of the parent item', () => {
     const state = convertedChair();
     const board = lineOf(state, 'SA-200', 'RM-300');

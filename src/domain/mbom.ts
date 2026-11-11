@@ -71,6 +71,9 @@ export function mergeConvertedMbom(
     );
   }
   for (const line of toClose) line.effectiveToDay = effectiveFromDay;
+  // E-BOM行を改訂すると行IDが変わり、M-BOM側は「旧行を旧版化＋新行を追加」になる。
+  // このとき人が割り当てた投入工程が既定値に戻らないよう、同じ親子の旧行から引き継ぐ（PLM-EXT-18）
+  const closedByPair = new Map(toClose.map((l) => [`${l.parentItemId}::${l.childItemId}`, l]));
 
   const currentById = new Map(currentInScope.map((l) => [l.bomLineId, l]));
   let added = 0;
@@ -81,6 +84,8 @@ export function mergeConvertedMbom(
       if (existing.processStep === undefined) existing.processStep = line.processStep;
       kept += 1;
     } else {
+      const predecessor = closedByPair.get(`${line.parentItemId}::${line.childItemId}`);
+      if (predecessor?.processStep !== undefined) line.processStep = predecessor.processStep;
       bomLines.push(line);
       added += 1;
     }

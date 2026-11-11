@@ -46,12 +46,13 @@ export function App() {
         {/* 現在日。BOM行・工程の改訂は「新しい版の開始日が旧版より後」が条件なので、日を進める操作を置く。
             日を進めても業務処理は何も動かない（日付が1日進むだけ） */}
         <div className="app-header__clock">
-          <span>
+          <span role="status">
             現在日：<strong>D{state.currentDay}</strong>
           </span>
           <button type="button" className="secondary-button" onClick={() => dispatch({ type: 'ui/advanceDay', byDays: 1 })}>
             次の日へ進む
           </button>
+          <span className="app-header__subtitle">日付だけが進みます。BOM行・工程の改訂は、前の版より後の日に行えます。</span>
         </div>
       </header>
 

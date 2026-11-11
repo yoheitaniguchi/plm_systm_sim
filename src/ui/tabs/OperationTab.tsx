@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { checkInputOperations, currentMbomLines, linesUsingOperation } from '../../domain/mbom';
-import { currentOperations } from '../../domain/operation';
+import { canReviseOn, currentOperations } from '../../domain/operation';
 import type { AppAction, AppState } from '../../domain/reducer';
 import type { Operation } from '../../domain/types';
 
@@ -26,7 +26,10 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
   const itemId = makeItems.some((i) => i.itemId === selectedItemId) ? selectedItemId : (makeItems[0]?.itemId ?? '');
 
   const [addForm, setAddForm] = useState<OperationForm>(EMPTY_FORM);
-  const [editing, setEditing] = useState<{ operationId: string; form: OperationForm } | null>(null);
+  // 改訂フォームの対象は工程コードで持つ（版や順序が変わっても不変）。開いたときの版（operationId）も覚えておき、
+  // その版が現行でなくなったら（改訂が成功した・入れ替えや終了で旧版化した）フォームを出さない。
+  // 改訂が拒否されたときは版が変わらないので、入力はそのまま残る
+  const [editingState, setEditing] = useState<{ opCode: string; operationId: string; form: OperationForm } | null>(null);
   const [endingId, setEndingId] = useState<string | null>(null);
 
   const workCenters = state.passthrough.workCenters;
@@ -38,6 +41,10 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
   const issues = checkInputOperations(state.bomLines, state.operations);
   const itemName = (id: string) => state.items.find((i) => i.itemId === id)?.name ?? id;
   const addWorkCenter = addForm.workCenter || workCenters[0]?.workCenter || '';
+  const editingTarget = editingState ? operations.find((o) => o.operationId === editingState.operationId) : undefined;
+  const editing = editingState && editingTarget ? editingState : null;
+  const lockedToday = operations.filter((o) => !canReviseOn(o, state.currentDay));
+  const ending = operations.find((o) => o.operationId === endingId);
 
   const move = (index: number, delta: -1 | 1) => {
     const codes = operations.map((o) => o.opCode);
@@ -45,8 +52,13 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
     dispatch({ type: 'operation/reorder', itemId, opCodesInOrder: codes, effectiveFromDay: state.currentDay });
   };
 
+  // 入れ替えは、動く2つの工程の両方に新しい版を作れる日でないとできない
+  const canMove = (index: number, delta: -1 | 1) =>
+    canReviseOn(operations[index], state.currentDay) && canReviseOn(operations[index + delta], state.currentDay);
+
   const startEditing = (o: Operation) =>
     setEditing({
+      opCode: o.opCode,
       operationId: o.operationId,
       form: { name: o.name, workCenter: o.workCenter, stdTimeMin: o.stdTimeMin, description: o.description ?? '' },
     });
@@ -70,13 +82,21 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
       )}
 
       {makeItems.length === 0 ? (
-        <p>内製品目がありません。</p>
+        <p>内製品目がありません。品目タブで登録するか、連携タブで MasterSnapshot を取り込んでください。</p>
       ) : (
         <>
           <div className="form-grid">
             <label>
               対象の内製品目
-              <select value={itemId} onChange={(e) => { setSelectedItemId(e.target.value); setEditing(null); setEndingId(null); }}>
+              <select
+                value={itemId}
+                onChange={(e) => {
+                  setSelectedItemId(e.target.value);
+                  setEditing(null);
+                  setEndingId(null);
+                  setAddForm(EMPTY_FORM);
+                }}
+              >
                 {makeItems.map((i) => (
                   <option key={i.itemId} value={i.itemId}>
                     {i.name}（{i.itemId}）
@@ -86,11 +106,21 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
             </label>
           </div>
 
-          <h3>{itemName(itemId)}の工程</h3>
+          <h3 id="operation-list-heading">{itemName(itemId)}の工程</h3>
+          {lockedToday.length > 0 && (
+            <p>
+              現在日D{state.currentDay}では、有効開始日がD{state.currentDay}以降の工程（{lockedToday.map((o) => o.opCode).join('・')}
+              ）は改訂・順序の入れ替えができません。{' '}
+              <button type="button" className="secondary-button" onClick={() => dispatch({ type: 'ui/advanceDay', byDays: 1 })}>
+                日を進める（D{state.currentDay + 1}へ）
+              </button>
+            </p>
+          )}
+          <p className="muted">投入部品がある工程は終了できません。先に下の「投入部品と投入工程」で投入工程を変えてください。</p>
           {operations.length === 0 ? (
-            <p>工程がまだありません。</p>
+            <p>工程がまだありません。下の「工程を追加」から登録してください。</p>
           ) : (
-            <table className="data-table">
+            <table className="data-table" aria-labelledby="operation-list-heading">
               <thead>
                 <tr>
                   <th scope="col">順序</th>
@@ -108,7 +138,7 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
                 {operations.map((o, index) => {
                   const users = linesUsingOperation(state.bomLines, o.itemId, o.opCode);
                   return (
-                    <tr key={o.operationId}>
+                    <tr key={o.opCode}>
                       <td>{o.stepNo}</td>
                       <td>{o.opCode}</td>
                       <td>
@@ -120,50 +150,38 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
                       <td>{o.version}</td>
                       <td>D{o.effectiveFromDay}</td>
                       <td>{users.length === 0 ? 'なし' : users.map((l) => itemName(l.childItemId)).join('、')}</td>
-                      <td>
-                        <button type="button" className="secondary-button" disabled={index === 0} aria-label={`${o.opCode} ${o.name}を前へ`} onClick={() => move(index, -1)}>
+                      <td className="actions-cell">
+                        <button type="button" className="secondary-button" disabled={index === 0 || !canMove(index, -1)} aria-label={`${o.opCode} ${o.name}を前へ`} onClick={() => move(index, -1)}>
                           ↑
                         </button>{' '}
                         <button
                           type="button"
                           className="secondary-button"
-                          disabled={index === operations.length - 1}
+                          disabled={index === operations.length - 1 || !canMove(index, 1)}
                           aria-label={`${o.opCode} ${o.name}を後ろへ`}
                           onClick={() => move(index, 1)}
                         >
                           ↓
                         </button>{' '}
-                        <button type="button" className="secondary-button" aria-label={`${o.opCode} ${o.name}を改訂`} onClick={() => startEditing(o)}>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={!canReviseOn(o, state.currentDay)}
+                          aria-label={`${o.opCode} ${o.name}を改訂`}
+                          onClick={() => startEditing(o)}
+                        >
                           改訂
                         </button>{' '}
-                        {endingId === o.operationId ? (
-                          <>
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              onClick={() => {
-                                dispatch({ type: 'operation/end', operationId: o.operationId, effectiveToDay: state.currentDay });
-                                setEndingId(null);
-                              }}
-                            >
-                              終了を確定
-                            </button>{' '}
-                            <button type="button" className="secondary-button" onClick={() => setEndingId(null)}>
-                              やめる
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            disabled={users.length > 0}
-                            title={users.length > 0 ? '投入部品がある工程は終了できません。先に投入工程を変えてください' : undefined}
-                            aria-label={`${o.opCode} ${o.name}を終了`}
-                            onClick={() => setEndingId(o.operationId)}
-                          >
-                            終了
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={users.length > 0}
+                          aria-label={`${o.opCode} ${o.name}を終了`}
+                          onClick={() => setEndingId(o.operationId)}
+                        >
+                          終了
+                        </button>
+                        {users.length > 0 && <span className="muted">投入部品あり（終了不可）</span>}
                       </td>
                     </tr>
                   );
@@ -172,20 +190,53 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
             </table>
           )}
 
-          {editing && (
+          {ending && linesUsingOperation(state.bomLines, ending.itemId, ending.opCode).length === 0 && (
+            <div className="banner banner--warning">
+              <p>
+                {ending.opCode} {ending.name}をD{state.currentDay}で終了します。元に戻せず、工程コード{ending.opCode}は再利用されません。
+                {operations.length === 1 && 'この品目の工程が無くなります（工順の無い内製品目は、生産管理側で計画オーダを確定できません）。'}
+              </p>
+              <div className="actions-cell">
+                <button type="button" className="secondary-button" autoFocus onClick={() => setEndingId(null)}>
+                  終了をやめる
+                </button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() => {
+                    dispatch({ type: 'operation/end', operationId: ending.operationId, effectiveToDay: state.currentDay });
+                    setEndingId(null);
+                  }}
+                >
+                  {ending.opCode} {ending.name}の終了を確定
+                </button>
+              </div>
+            </div>
+          )}
+
+          {editing && editingTarget && (
             <>
-              <h3>工程の改訂（D{state.currentDay}から有効な新しい版を作ります）</h3>
+              <h3 id="operation-revise-heading">
+                {editingTarget.opCode} {editingTarget.name}の改訂（版{editingTarget.version + 1}をD{state.currentDay}から有効にします）
+              </h3>
               <form
+                aria-labelledby="operation-revise-heading"
                 className="form-grid"
                 onSubmit={(e) => {
                   e.preventDefault();
                   dispatch({
                     type: 'operation/revise',
                     operationId: editing.operationId,
-                    patch: editing.form,
+                    // 変えた項目だけを送る（変えていない作業区まで検査で拒否されないようにする）
+                    patch: {
+                      name: editing.form.name !== editingTarget.name ? editing.form.name : undefined,
+                      workCenter: editing.form.workCenter !== editingTarget.workCenter ? editing.form.workCenter : undefined,
+                      stdTimeMin: editing.form.stdTimeMin !== editingTarget.stdTimeMin ? editing.form.stdTimeMin : undefined,
+                      description: editing.form.description !== (editingTarget.description ?? '') ? editing.form.description : undefined,
+                    },
                     effectiveFromDay: state.currentDay,
                   });
-                  setEditing(null);
+                  // 閉じない：改訂が成功すれば対象の版が旧版になり、フォームは自動的に消える。拒否されたら入力を残す
                 }}
               >
                 <OperationFields form={editing.form} onChange={(form) => setEditing({ ...editing, form })} workCenters={workCenters.map((w) => w.workCenter)} />
@@ -193,17 +244,18 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
                   改訂する
                 </button>
                 <button type="button" className="secondary-button" onClick={() => setEditing(null)}>
-                  やめる
+                  改訂をやめる
                 </button>
               </form>
             </>
           )}
 
-          <h3>工程を追加</h3>
+          <h3 id="operation-add-heading">工程を追加</h3>
           {workCenters.length === 0 ? (
             <p>作業区は生産管理側のマスタです。MasterSnapshot を取り込んでください（連携タブ）。作業区が無い間は工程を追加できません。</p>
           ) : (
             <form
+              aria-labelledby="operation-add-heading"
               className="form-grid"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -227,7 +279,7 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
                 workCenters={workCenters.map((w) => w.workCenter)}
               />
               <button type="submit" className="primary-button">
-                末尾に追加
+                {itemName(itemId)}の末尾に追加
               </button>
             </form>
           )}
@@ -239,7 +291,7 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
           {inputLines.length === 0 ? (
             <p>この品目を親とするM-BOM行がありません（M-BOMタブで変換してください）。</p>
           ) : (
-            <table className="data-table">
+            <table className="data-table" aria-label="投入部品と投入工程">
               <thead>
                 <tr>
                   <th scope="col">子品目</th>
@@ -249,7 +301,7 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
               </thead>
               <tbody>
                 {inputLines.map((l) => {
-                  const invalid = l.processStep !== undefined && !operations.some((o) => o.opCode === l.processStep);
+                  const invalid = issues.some((i) => i.bomLineId === l.bomLineId && i.parentItemId === itemId && i.kind === '無効');
                   return (
                     <tr key={l.bomLineId}>
                       <td>
@@ -258,7 +310,7 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
                       <td>{l.qtyPer}</td>
                       <td>
                         {operations.length === 0 ? (
-                          '未割当（この品目に工程がありません）'
+                          '未割当（この品目に工程がありません。上の「工程を追加」から登録してください）'
                         ) : (
                           <select
                             aria-label={`${l.childItemId}の投入工程`}
@@ -285,7 +337,7 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
           {history.length > 0 && (
             <>
               <h3>履歴（旧版・終了した工程）</h3>
-              <table className="data-table">
+              <table className="data-table" aria-label="工程の履歴">
                 <thead>
                   <tr>
                     <th scope="col">工程コード</th>

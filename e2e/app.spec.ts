@@ -198,16 +198,17 @@ test.describe('operations / BOP (PLM-EXT-17・18)', () => {
     await page.getByLabel('名称').fill('梱包');
     await page.getByLabel('作業区（取り込み済みの作業区から選びます）').selectOption('WC-INS');
     await page.getByLabel('標準時間（分）').fill('5');
-    await page.getByRole('button', { name: '末尾に追加' }).click();
+    await page.getByRole('button', { name: '木製イスの末尾に追加' }).click();
     await expect(opTable.getByRole('cell', { name: 'OP30', exact: true })).toBeVisible();
 
-    // 同じ日の順序の入れ替えは拒否される（新しい版の開始日は旧版より後）
-    await page.getByRole('button', { name: 'OP30 梱包を前へ' }).click();
-    await expect(page.getByText('旧版より後である必要があります')).toBeVisible();
+    // 同じ日は改訂・順序の入れ替えができない（新しい版の開始日は旧版より後）。理由と日を進めるボタンが出る
+    await expect(page.getByRole('button', { name: 'OP30 梱包を前へ' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'OP10 組立を改訂' })).toBeDisabled();
+    await expect(page.getByText('現在日D0では')).toBeVisible();
 
     // 日を進めると入れ替えられ、旧版が履歴に残る
-    await page.getByRole('button', { name: '次の日へ進む' }).click();
-    await expect(page.getByText('D1', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '日を進める（D1へ）' }).click();
+    await expect(page.getByRole('status').filter({ hasText: '現在日' })).toContainText('D1');
     await page.getByRole('button', { name: 'OP30 梱包を前へ' }).click();
     await expect(page.getByRole('heading', { name: '履歴（旧版・終了した工程）' })).toBeVisible();
     await expect(opTable.getByRole('row').nth(2)).toContainText('OP30');
@@ -220,6 +221,14 @@ test.describe('operations / BOP (PLM-EXT-17・18)', () => {
 
     // 投入部品がある工程は終了できない
     await expect(page.getByRole('button', { name: 'OP10 組立を終了' })).toBeDisabled();
+
+    // 投入部品の無い工程は、確認を挟んで終了できる（確認中の画面もアクセシビリティ検査する）
+    await page.getByRole('button', { name: 'OP30 梱包を終了' }).click();
+    await expect(page.getByText('元に戻せず、工程コードOP30は再利用されません')).toBeVisible();
+    const axe = await new AxeBuilder({ page }).analyze();
+    expect(axe.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
+    await page.getByRole('button', { name: 'OP30 梱包の終了を確定' }).click();
+    await expect(opTable.getByRole('cell', { name: 'OP30', exact: true })).toHaveCount(0);
 
     // 投入工程の割り当て
     await page.getByLabel('PT-500の投入工程').selectOption('OP20');
