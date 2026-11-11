@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { currentEbomLines } from '../../domain/ebom';
-import { checkMbomStaleness, currentMbomLines } from '../../domain/mbom';
+import { checkInputOperations, checkMbomStaleness, currentMbomLines } from '../../domain/mbom';
 import { currentOperations } from '../../domain/operation';
 import { effectiveMbomLines } from '../../domain/reducer';
 import type { AppAction, AppState } from '../../domain/reducer';
@@ -26,6 +26,15 @@ export function MbomTab({ state, dispatch }: MbomTabProps) {
 
   const [configId, setConfigId] = useState('');
 
+  // 投入工程（PLM-EXT-18）。割り当ては工程タブで行い、ここでは表示と警告だけを出す
+  const inputIssues = checkInputOperations(resolvedMbomLines, state.operations);
+  const invalidLineIds = new Set(inputIssues.map((i) => i.bomLineId));
+  const inputOperationLabel = (line: { bomLineId: string; parentItemId: string; processStep?: string }) => {
+    if (line.processStep === undefined || invalidLineIds.has(line.bomLineId)) return null;
+    const op = currentOperations(state.operations, line.parentItemId).find((o) => o.opCode === line.processStep);
+    return op ? `${op.opCode} ${op.name}` : null;
+  };
+
   const alternateGroups = new Map<string, string>();
   for (const line of rawMbomLines) {
     if (line.alternateGroupId) alternateGroups.set(line.alternateGroupId, line.alternateGroupId);
@@ -44,15 +53,19 @@ export function MbomTab({ state, dispatch }: MbomTabProps) {
         </div>
       )}
 
+      {inputIssues.length > 0 && (
+        <div className="banner banner--warning" role="status">
+          投入工程が未割当または無効なM-BOM行が{inputIssues.length}件あります。「工程（BOP）」タブで割り当ててください（変換・書き出しは止まりません）。
+        </div>
+      )}
+
       <form
         className="form-grid"
         onSubmit={(e) => {
           e.preventDefault();
-          const routingMap = Object.fromEntries(currentOperations(state.operations).map((o) => [o.itemId, o.workCenter]));
           const config = state.configurations.find((c) => c.configId === configId);
           dispatch({
             type: 'mbom/convert',
-            routingMap,
             effectiveFromDay: state.currentDay,
             configuration: config
               ? { baseItemId: config.baseItemId, selections: config.selections, resolvedItemId: config.resolvedItemId }
@@ -103,7 +116,7 @@ export function MbomTab({ state, dispatch }: MbomTabProps) {
       {roots.map((root) => (
         <div key={root} className="tree-card">
           <h3>{root}</h3>
-          <BomTree rootItemId={root} lines={resolvedMbomLines} items={state.items} />
+          <BomTree rootItemId={root} lines={resolvedMbomLines} items={state.items} inputOperationLabel={inputOperationLabel} />
         </div>
       ))}
     </section>

@@ -1,7 +1,6 @@
 import { useReducer, useState } from 'react';
 import { createWoodenChairDemoState } from '../domain/presets';
 import { reducer } from '../domain/reducer';
-import { currentOperations } from '../domain/operation';
 import { Banner } from './components/Banner';
 import { Onboarding } from './Onboarding';
 import { ChangeManagementTab } from './tabs/ChangeManagementTab';
@@ -10,16 +9,18 @@ import { EbomTab } from './tabs/EbomTab';
 import { ImpactTab } from './tabs/ImpactTab';
 import { ItemsTab } from './tabs/ItemsTab';
 import { MbomTab } from './tabs/MbomTab';
+import { OperationTab } from './tabs/OperationTab';
 import { PlanningBomTab } from './tabs/PlanningBomTab';
 import { PurchaseBomTab } from './tabs/PurchaseBomTab';
 import { SyncTab } from './tabs/SyncTab';
 
-type TabKey = 'item' | 'ebom' | 'mbom' | 'change' | 'document' | 'sync' | 'impact' | 'purchase' | 'planning';
+type TabKey = 'item' | 'ebom' | 'mbom' | 'operation' | 'change' | 'document' | 'sync' | 'impact' | 'purchase' | 'planning';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'item', label: '品目' },
   { key: 'ebom', label: 'E-BOM' },
   { key: 'mbom', label: 'M-BOM' },
+  { key: 'operation', label: '工程（BOP）' },
   { key: 'change', label: '変更管理' },
   { key: 'document', label: '文書' },
   { key: 'sync', label: '連携' },
@@ -42,6 +43,16 @@ export function App() {
         <p className="app-header__subtitle">
           品目・E-BOM・M-BOM・変更管理を通じて学ぶ、PDM＋ECM相当のPLM教材（完全なPLMスコープではありません、1.1）
         </p>
+        {/* 現在日。BOM行・工程の改訂は「新しい版の開始日が旧版より後」が条件なので、日を進める操作を置く。
+            日を進めても業務処理は何も動かない（日付が1日進むだけ） */}
+        <div className="app-header__clock">
+          <span>
+            現在日：<strong>D{state.currentDay}</strong>
+          </span>
+          <button type="button" className="secondary-button" onClick={() => dispatch({ type: 'ui/advanceDay', byDays: 1 })}>
+            次の日へ進む
+          </button>
+        </div>
       </header>
 
       {state.lastError && <Banner kind="error" message={state.lastError} />}
@@ -65,6 +76,7 @@ export function App() {
         {activeTab === 'item' && <ItemsTab state={state} dispatch={dispatch} />}
         {activeTab === 'ebom' && <EbomTab state={state} dispatch={dispatch} />}
         {activeTab === 'mbom' && <MbomTab state={state} dispatch={dispatch} />}
+        {activeTab === 'operation' && <OperationTab state={state} dispatch={dispatch} />}
         {activeTab === 'change' && (
           <ChangeManagementTab
             state={state}
@@ -98,7 +110,6 @@ export function App() {
           onConvert={() =>
             dispatch({
               type: 'mbom/convert',
-              routingMap: Object.fromEntries(currentOperations(state.operations).map((o) => [o.itemId, o.workCenter])),
               effectiveFromDay: state.currentDay,
               configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' },
             })

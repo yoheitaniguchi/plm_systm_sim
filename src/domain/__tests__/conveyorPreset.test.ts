@@ -14,7 +14,7 @@ function importConveyor(): AppState {
 }
 
 function importAndConvert(): AppState {
-  return reducer(importConveyor(), { type: 'mbom/convert', routingMap: {}, effectiveFromDay: 0 });
+  return reducer(importConveyor(), { type: 'mbom/convert', effectiveFromDay: 0 });
 }
 
 describe('conveyor preset (PLM-EXT-15)', () => {
@@ -70,7 +70,8 @@ describe('conveyor preset (PLM-EXT-15)', () => {
     ]);
   });
 
-  it('converts to an M-BOM with the same structure and no process step', () => {
+  // コンベア装置は工順が空なので、投入工程は未割当になる（作業区と工順は後続のPRで足す）
+  it('converts to an M-BOM with the same structure and no input operation', () => {
     const state = importAndConvert();
     expect(state.lastError).toBeNull();
     const mbom = currentMbomLines(state.bomLines);

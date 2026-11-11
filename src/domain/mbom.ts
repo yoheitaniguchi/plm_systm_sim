@@ -1,6 +1,6 @@
 // M-BOMドメイン：製造部品表、E→M変換、代替部品（承認部品リスト）（3章#3、4.5、7.2、7.6）。
 import { findRealParent, isEbomOnlyGroup } from './ebom';
-import type { PlmBomLine } from './types';
+import type { Operation, PlmBomLine } from './types';
 
 // isEbomOnlyの行は変換時に「消滅」し、その子品目が親の親に直接ぶら下がる形に
 // フラット化される（4.1「脚部ユニット」の例に対応）。
@@ -8,7 +8,8 @@ import type { PlmBomLine } from './types';
 // 持つ行が残っていない）であることを要求する。未解決のままでは呼び出し不可（UC-VARIANT-3）。
 export function convertEbomToMbom(
   ebomLines: PlmBomLine[],
-  routingMap: Record<string, string>, // itemId → 対応する工程コード
+  // 親品目のitemId → 既定の投入工程（親品目の工程コード）。親に工程が無ければ投入工程は未割当になる（PLM-EXT-18）
+  defaultInputOperation: Record<string, string>,
   effectiveFromDay: number,
 ): PlmBomLine[] {
   if (ebomLines.some((l) => l.optionGroupId)) {
@@ -31,7 +32,7 @@ export function convertEbomToMbom(
       bomLineId: `M-${line.bomLineId}`,
       bomType: 'M',
       parentItemId: effectiveParentId,
-      processStep: routingMap[line.childItemId],
+      processStep: defaultInputOperation[effectiveParentId],
       isEbomOnly: false,
       effectiveFromDay,
     });
@@ -42,7 +43,8 @@ export function convertEbomToMbom(
 // 変換結果を既存のM-BOMへ取り込む（design.md PLM-EXT-16）。
 // 再変換のたびに行を足すだけだと、同じ構成のM-BOM行が重複する。同じ変換範囲（`isInScope`が真の行）について、
 // ①変換結果に無くなった現行行は`effectiveToDay`を設定して旧版化し（履歴は消さない）、
-// ②変換結果と同じ`bomLineId`の現行行があればそのまま残し（`processStep`だけ最新の工順マップに合わせる）、
+// ②変換結果と同じ`bomLineId`の現行行があればそのまま残し（割り当て済みの投入工程`processStep`は上書きしない。
+//   未割当の行にだけ既定値を入れる。PLM-EXT-18）、
 // ③それ以外の変換結果を新しい行として追加する。
 // 変換範囲は「バリアント構成なしの変換」と「確定品目ごとの変換」で分かれ、行の`mbomScope`に記録する
 // （`converted`の各行には呼び出し側が`scope`と同じ値を設定済みであること）。
@@ -76,7 +78,7 @@ export function mergeConvertedMbom(
   for (const line of converted) {
     const existing = currentById.get(line.bomLineId);
     if (existing) {
-      existing.processStep = line.processStep;
+      if (existing.processStep === undefined) existing.processStep = line.processStep;
       kept += 1;
     } else {
       bomLines.push(line);
@@ -147,4 +149,58 @@ export function checkMbomStaleness(ebomLines: PlmBomLine[], mbomLines: PlmBomLin
     }
   }
   return warnings;
+}
+
+// ---------- 投入工程（PLM-EXT-18） ----------
+
+function currentOperationCodes(operations: Operation[], itemId: string): Set<string> {
+  return new Set(operations.filter((o) => o.itemId === itemId && o.effectiveToDay === undefined).map((o) => o.opCode));
+}
+
+// 現在有効なM-BOM行に投入工程を割り当てる（opCodeがundefinedなら未割当に戻す）。
+// 版は上げず、行をその場で書き換える（投入工程はMasterSnapshotに出ないPLM内の付加情報で、
+// M-BOM行のIDは変換元のE-BOM行から決まるため、版を上げるとE-BOMとの対応が崩れる）。
+// 同じbomLineIdが旧版と現行の両方にありうる（PLM-EXT-16の境界事例）ので、現行行だけを対象にする。
+export function assignInputOperation(
+  bomLines: PlmBomLine[],
+  operations: Operation[],
+  bomLineId: string,
+  opCode: string | undefined,
+): PlmBomLine {
+  const line = currentMbomLines(bomLines).find((l) => l.bomLineId === bomLineId);
+  if (!line) throw new Error(`現在有効なM-BOM行 ${bomLineId} が見つかりません`);
+  if (opCode !== undefined && !currentOperationCodes(operations, line.parentItemId).has(opCode)) {
+    throw new Error(`工程 ${opCode} は、親品目 ${line.parentItemId} の現在有効な工程にありません`);
+  }
+  line.processStep = opCode;
+  return line;
+}
+
+export interface InputOperationIssue {
+  bomLineId: string;
+  parentItemId: string;
+  childItemId: string;
+  kind: '未割当' | '無効'; // 無効＝指している工程が終了している、または親品目の工程でない
+  processStep?: string;
+}
+
+// 投入工程が未割当、または親品目の現在有効な工程を指していないM-BOM行を列挙する。
+// 警告として見せるためのもので、変換・書き出しは止めない。
+export function checkInputOperations(mbomLines: PlmBomLine[], operations: Operation[]): InputOperationIssue[] {
+  const issues: InputOperationIssue[] = [];
+  for (const line of mbomLines) {
+    if (line.bomType !== 'M' || line.effectiveToDay !== undefined) continue;
+    const base = { bomLineId: line.bomLineId, parentItemId: line.parentItemId, childItemId: line.childItemId };
+    if (line.processStep === undefined) {
+      issues.push({ ...base, kind: '未割当' });
+    } else if (!currentOperationCodes(operations, line.parentItemId).has(line.processStep)) {
+      issues.push({ ...base, kind: '無効', processStep: line.processStep });
+    }
+  }
+  return issues;
+}
+
+// ある工程を投入工程として指している、現在有効なM-BOM行（工程の終了を止める判定に使う）。
+export function linesUsingOperation(bomLines: PlmBomLine[], itemId: string, opCode: string): PlmBomLine[] {
+  return currentMbomLines(bomLines).filter((l) => l.parentItemId === itemId && l.processStep === opCode);
 }

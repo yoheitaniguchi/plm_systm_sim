@@ -214,11 +214,3 @@ function setAlternateGroupFields(
   line.alternatePriority = alternatePriority;
   line.approvalStatus = approvalStatus;
 }
-
-// 4.1: 木製イスの工順マップ（M-BOM変換時にprocessStepへ引き渡す）。
-export const woodenChairRoutingMap: Record<string, string> = {
-  'SA-200': 'WC-CUT',
-  'PT-400': 'WC-ASM',
-  'PT-401': 'WC-ASM',
-  'PT-500': 'WC-ASM',
-};

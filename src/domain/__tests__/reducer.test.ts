@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { currentEbomLines, resolveConfiguration } from '../ebom';
 import { buildPurchaseBom, computeCostImpact } from '../impactAnalysis';
-import { checkMbomStaleness, convertEbomToMbom } from '../mbom';
+import { checkInputOperations, checkMbomStaleness, convertEbomToMbom, currentMbomLines } from '../mbom';
+import { currentOperations, firstOperationCodes } from '../operation';
 import {
   bicycleMasterSnapshot,
   conveyorMasterSnapshot,
   createWoodenChairDemoState,
   woodenChairMasterSnapshot,
-  woodenChairRoutingMap,
 } from '../presets';
 import { createInitialState, effectiveMbomLines, reducer } from '../reducer';
 import type { AppState } from '../reducer';
@@ -23,7 +23,7 @@ describe('presets', () => {
   // UC-VARIANT-3: 未解決の150%BOMのままではM-BOM変換できない
   it('refuses M-BOM conversion while the seat-finish option group is unresolved', () => {
     const state = createWoodenChairDemoState();
-    expect(() => convertEbomToMbom(currentEbomLines(state.bomLines), woodenChairRoutingMap, 0)).toThrow();
+    expect(() => convertEbomToMbom(currentEbomLines(state.bomLines), firstOperationCodes(state.operations), 0)).toThrow();
   });
 
   // UC-MBOM-1 end-to-end: 「無垢材」を選んで確定した構成から変換する
@@ -35,7 +35,7 @@ describe('presets', () => {
       selections: { 'OG-SEAT-FINISH': '無垢材' },
       resolvedItemId: 'FG-100',
     });
-    const mbom = convertEbomToMbom(resolvedLines, woodenChairRoutingMap, 0);
+    const mbom = convertEbomToMbom(resolvedLines, firstOperationCodes(state.operations), 0);
     const flatPairs = mbom.map((l) => `${l.parentItemId}::${l.childItemId}`).sort();
     expect(flatPairs).toEqual(
       ['FG-100::PT-400', 'FG-100::PT-401', 'FG-100::PT-500', 'FG-100::SA-200', 'SA-200::RM-300'].sort(),
@@ -93,7 +93,7 @@ describe('reducer', () => {
     let state = createWoodenChairDemoState();
     state = reducer(state, {
       type: 'mbom/convert',
-      routingMap: woodenChairRoutingMap,
+     
       effectiveFromDay: 0,
       configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' },
     });
@@ -141,7 +141,7 @@ describe('reducer', () => {
 
     state = reducer(state, {
       type: 'mbom/convert',
-      routingMap: woodenChairRoutingMap,
+     
       effectiveFromDay: 0,
       configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '布張り' }, resolvedItemId: 'FG-101' },
     });
@@ -159,7 +159,7 @@ describe('reducer', () => {
     let state = createWoodenChairDemoState();
     state = reducer(state, {
       type: 'mbom/convert',
-      routingMap: woodenChairRoutingMap,
+     
       effectiveFromDay: 0,
       configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' },
     });
@@ -190,7 +190,7 @@ describe('reducer', () => {
     state = reducer(state, { type: 'change/issueEco', changeId: 'ECR-1', effectiveFromDay: 5 });
     state = reducer(state, { type: 'change/notifyEcn', changeId: 'ECR-1' });
     state = reducer(state, { type: 'change/close', changeId: 'ECR-1' });
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 5 });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 5 });
 
     state = reducer(state, { type: 'sync/preflight', currentJson: woodenChairMasterSnapshot });
     expect(state.lastError).toBeNull();
@@ -253,13 +253,13 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
 
   function importConveyorAndConvert(): AppState {
     let state = reducer(createInitialState(), { type: 'sync/import', json: conveyorMasterSnapshot, importedAtDay: 0 });
-    state = reducer(state, { type: 'mbom/convert', routingMap: {}, effectiveFromDay: 0 });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0 });
     return state;
   }
 
   it('is idempotent: converting twice without any E-BOM change adds no lines', () => {
     const once = importConveyorAndConvert();
-    const twice = reducer(once, { type: 'mbom/convert', routingMap: {}, effectiveFromDay: 0 });
+    const twice = reducer(once, { type: 'mbom/convert', effectiveFromDay: 0 });
     expect(twice.lastError).toBeNull();
     expect(twice.bomLines.filter((l) => l.bomType === 'M')).toHaveLength(10);
     expect(twice.bomLines.filter((l) => l.bomType === 'M')).toEqual(once.bomLines.filter((l) => l.bomType === 'M'));
@@ -269,7 +269,7 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
     let state = importConveyorAndConvert();
     const motorLine = state.bomLines.find((l) => l.bomType === 'E' && l.childItemId === 'PT-850')!;
     state = reducer(state, { type: 'ebom/reviseLine', bomLineId: motorLine.bomLineId, patch: { qtyPer: 2 }, effectiveFromDay: 5 });
-    state = reducer(state, { type: 'mbom/convert', routingMap: {}, effectiveFromDay: 5 });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 5 });
     expect(state.lastError).toBeNull();
 
     const current = currentM(state);
@@ -293,29 +293,35 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
   it('rejects a re-conversion dated before the line it would supersede', () => {
     let state = importConveyorAndConvert();
     state = reducer(state, { type: 'ui/advanceDay', byDays: 3 });
-    state = reducer(state, { type: 'mbom/convert', routingMap: {}, effectiveFromDay: 3 });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 3 });
     const motorLine = state.bomLines.find((l) => l.bomType === 'E' && l.childItemId === 'PT-850')!;
     state = reducer(state, { type: 'ebom/reviseLine', bomLineId: motorLine.bomLineId, patch: { qtyPer: 2 }, effectiveFromDay: 5 });
-    state = reducer(state, { type: 'mbom/convert', routingMap: {}, effectiveFromDay: 5 });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 5 });
     const before = state.bomLines.filter((l) => l.bomType === 'M');
     const motorE = state.bomLines.find((l) => l.bomType === 'E' && l.childItemId === 'PT-850' && l.effectiveToDay === undefined)!;
     state = reducer(state, { type: 'ebom/reviseLine', bomLineId: motorE.bomLineId, patch: { qtyPer: 3 }, effectiveFromDay: 8 });
-    state = reducer(state, { type: 'mbom/convert', routingMap: {}, effectiveFromDay: 4 });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 4 });
     expect(state.lastError).toMatch(/有効開始日/);
     expect(state.bomLines.filter((l) => l.bomType === 'M')).toEqual(before);
   });
 
-  it('refreshes processStep in place when only the routing map changes', () => {
+  it('fills the input operation of unassigned lines on re-conversion, without adding lines', () => {
+    // コンベア装置は工順が空なので、最初の変換では投入工程が未割当になる
     let state = importConveyorAndConvert();
-    state = reducer(state, { type: 'mbom/convert', routingMap: { 'PT-850': 'WC-ASM' }, effectiveFromDay: 0 });
+    expect(currentM(state).every((l) => l.processStep === undefined)).toBe(true);
+    // 作業区が無いと工程を作れないため、テストでは作業区を直接足す（作業区はPLMの画面では追加できない）
+    state = { ...state, passthrough: { ...state.passthrough, workCenters: [{ workCenter: 'WC-ASM', ratePerHour: 2400, capacityMinPerDay: 480 }] } };
+    state = reducer(state, { type: 'operation/add', input: { itemId: 'SA-820', name: '組立', workCenter: 'WC-ASM', stdTimeMin: 45, effectiveFromDay: 0 } });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0 });
     const current = currentM(state);
     expect(current).toHaveLength(10);
-    expect(current.find((l) => l.childItemId === 'PT-850')?.processStep).toBe('WC-ASM');
+    expect(current.filter((l) => l.parentItemId === 'SA-820').every((l) => l.processStep === 'OP10')).toBe(true);
+    expect(current.filter((l) => l.parentItemId !== 'SA-820').every((l) => l.processStep === undefined)).toBe(true);
   });
 
   it('is idempotent for the onboarding conversion of the wooden chair (same configuration twice)', () => {
     let state = createWoodenChairDemoState();
-    const convert = { type: 'mbom/convert' as const, routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') };
+    const convert = { type: 'mbom/convert' as const, effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') };
     state = reducer(state, convert);
     const first = state.bomLines.filter((l) => l.bomType === 'M');
     state = reducer(state, convert);
@@ -325,7 +331,7 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
 
   it('keeps conversions of different resolved items apart (FG-100 and FG-101 do not close each other)', () => {
     let state = createWoodenChairDemoState();
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
     const fg100 = ids(currentM(state)).sort();
     state = reducer(state, {
       type: 'variant/resolveConfiguration',
@@ -334,8 +340,8 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
       resolvedItemId: 'FG-101',
       resolvedItemName: '木製イス〈布張り〉',
     });
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('布張り', 'FG-101') });
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('布張り', 'FG-101') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('布張り', 'FG-101') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('布張り', 'FG-101') });
     expect(state.lastError).toBeNull();
     const current = currentM(state);
     expect(ids(current).filter((id) => id.endsWith('-FG-100')).sort()).toEqual(fg100);
@@ -345,8 +351,8 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
 
   it('closes the previous option line when the same resolved item is re-converted with another selection', () => {
     let state = createWoodenChairDemoState();
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('布張り', 'FG-100') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('布張り', 'FG-100') });
     expect(state.lastError).toBeNull();
     const seatChildren = currentM(state).filter((l) => l.parentItemId === 'SA-200').map((l) => l.childItemId);
     expect(seatChildren).toEqual(['RM-301']);
@@ -355,7 +361,7 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
   // 確定品目コードが別の品目コードを末尾に含んでいても、変換範囲を取り違えない
   it('does not confuse scopes when one resolved item code ends with another (FG-100 vs DX-FG-100)', () => {
     let state = createWoodenChairDemoState();
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
     state = reducer(state, {
       type: 'variant/resolveConfiguration',
       baseItemId: 'FG-100',
@@ -363,10 +369,10 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
       resolvedItemId: 'DX-FG-100',
       resolvedItemName: '木製イス〈デラックス〉',
     });
-    const dx = { type: 'mbom/convert' as const, routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('布張り', 'DX-FG-100') };
+    const dx = { type: 'mbom/convert' as const, effectiveFromDay: 0, configuration: chairConfig('布張り', 'DX-FG-100') };
     state = reducer(state, dx);
     state = reducer(state, dx);
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
     expect(state.lastError).toBeNull();
     const current = currentM(state);
     expect(new Set(ids(current)).size).toBe(current.length);
@@ -377,11 +383,11 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
 
   it('leaves FG-101 untouched when FG-100 is re-converted with another selection, and records the closing day', () => {
     let state = createWoodenChairDemoState();
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
     state = reducer(state, { type: 'variant/resolveConfiguration', baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '布張り' }, resolvedItemId: 'FG-101', resolvedItemName: '木製イス〈布張り〉' });
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('布張り', 'FG-101') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('布張り', 'FG-101') });
     const fg101 = state.bomLines.filter((l) => l.mbomScope === 'FG-101');
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 7, configuration: chairConfig('布張り', 'FG-100') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 7, configuration: chairConfig('布張り', 'FG-100') });
     expect(state.lastError).toBeNull();
     expect(state.bomLines.filter((l) => l.mbomScope === 'FG-101')).toEqual(fg101);
     const closed = state.bomLines.filter((l) => l.bomType === 'M' && l.effectiveToDay !== undefined);
@@ -394,12 +400,12 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
   // 木製イスのプリセット行ID（E-1〜E-7）と、改訂で発番するIDが衝突しない
   it('keeps both alternate legs after revising a preset E-BOM line and re-converting the wooden chair', () => {
     let state = createWoodenChairDemoState();
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
     state = reducer(state, { type: 'ebom/reviseLine', bomLineId: 'E-5', patch: { qtyPer: 3 }, effectiveFromDay: 5 });
     expect(state.lastError).toBeNull();
     const eIds = ids(state.bomLines.filter((l) => l.bomType === 'E'));
     expect(new Set(eIds).size).toBe(eIds.length);
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 5, configuration: chairConfig('無垢材', 'FG-100') });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 5, configuration: chairConfig('無垢材', 'FG-100') });
     expect(state.lastError).toBeNull();
     const current = currentM(state);
     expect(current.map((l) => `${l.childItemId}×${l.qtyPer}`).sort()).toEqual(['PT-400×3', 'PT-401×4', 'PT-500×8', 'RM-300×1', 'SA-200×1']);
@@ -409,7 +415,7 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
   it('rejects conversion when two source E-BOM lines share an id instead of silently dropping one', () => {
     const state = createWoodenChairDemoState();
     state.bomLines.find((l) => l.bomLineId === 'E-6')!.bomLineId = 'E-5';
-    const next = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
+    const next = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: chairConfig('無垢材', 'FG-100') });
     expect(next.lastError).toMatch(/重複/);
     expect(next.bomLines.filter((l) => l.bomType === 'M')).toEqual([]);
   });
@@ -417,7 +423,7 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
   // 同じ確定品目でオプションを往復させると、旧版と現行に同じ行IDが並ぶ。競合解決は現行行だけを書き換える
   it('applies a "theirs" conflict resolution to the current M-BOM line, not to a closed one with the same id', () => {
     let state = reducer(createInitialState(), { type: 'sync/import', json: woodenChairMasterSnapshot, importedAtDay: 0 });
-    state = reducer(state, { type: 'mbom/convert', routingMap: woodenChairRoutingMap, effectiveFromDay: 0 });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0 });
     const seat = state.bomLines.find((l) => l.bomType === 'M' && l.childItemId === 'RM-300')!;
     // 旧版と現行に同じIDが並ぶ状態を作る
     state.bomLines.unshift({ ...seat, effectiveToDay: 0 });
@@ -430,5 +436,102 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
     const lines = state.bomLines.filter((l) => l.bomType === 'M' && l.childItemId === 'RM-300');
     expect(lines.find((l) => l.effectiveToDay === undefined)?.qtyPer).toBe(2);
     expect(lines.find((l) => l.effectiveToDay !== undefined)?.qtyPer).toBe(1);
+  });
+});
+
+describe('input operation of M-BOM lines (PLM-EXT-18)', () => {
+  function convertedChair(): AppState {
+    return reducer(createWoodenChairDemoState(), {
+      type: 'mbom/convert',
+      effectiveFromDay: 0,
+      configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' },
+    });
+  }
+  const lineOf = (state: AppState, parent: string, child: string) =>
+    currentMbomLines(state.bomLines).find((l) => l.parentItemId === parent && l.childItemId === child)!;
+
+  it('defaults every line of the converted wooden chair to the first operation of its parent', () => {
+    const state = convertedChair();
+    expect(state.lastError).toBeNull();
+    expect(currentMbomLines(state.bomLines).map((l) => `${l.parentItemId}>${l.childItemId}:${l.processStep}`).sort()).toEqual([
+      'FG-100>PT-400:OP10',
+      'FG-100>PT-401:OP10',
+      'FG-100>PT-500:OP10',
+      'FG-100>SA-200:OP10',
+      'SA-200>RM-300:OP10',
+    ]);
+    expect(checkInputOperations(state.bomLines, state.operations)).toEqual([]);
+  });
+
+  it('assigns another operation of the parent item in place, and keeps it across re-conversion', () => {
+    let state = convertedChair();
+    const screw = lineOf(state, 'FG-100', 'PT-500');
+    state = reducer(state, { type: 'mbom/assignOperation', bomLineId: screw.bomLineId, opCode: 'OP20' });
+    expect(state.lastError).toBeNull();
+    const assigned = lineOf(state, 'FG-100', 'PT-500');
+    expect(assigned).toMatchObject({ processStep: 'OP20', version: screw.version, bomLineId: screw.bomLineId });
+
+    state = reducer(state, {
+      type: 'mbom/convert',
+      effectiveFromDay: 3,
+      configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' },
+    });
+    expect(lineOf(state, 'FG-100', 'PT-500').processStep).toBe('OP20');
+    expect(currentMbomLines(state.bomLines)).toHaveLength(5);
+  });
+
+  it('rejects an operation that is not a current operation of the parent item', () => {
+    const state = convertedChair();
+    const board = lineOf(state, 'SA-200', 'RM-300');
+    // OP20（検査）は木製イスの工程で、座面ASSYの工程ではない
+    const wrongItem = reducer(state, { type: 'mbom/assignOperation', bomLineId: board.bomLineId, opCode: 'OP20' });
+    expect(wrongItem.lastError).toContain('SA-200');
+    expect(wrongItem.bomLines).toEqual(state.bomLines);
+    const unknownLine = reducer(state, { type: 'mbom/assignOperation', bomLineId: 'M-NONE', opCode: 'OP10' });
+    expect(unknownLine.lastError).toContain('M-NONE');
+  });
+
+  it('can clear an assignment, which is then reported as unassigned', () => {
+    let state = convertedChair();
+    const board = lineOf(state, 'SA-200', 'RM-300');
+    state = reducer(state, { type: 'mbom/assignOperation', bomLineId: board.bomLineId });
+    expect(checkInputOperations(state.bomLines, state.operations)).toEqual([
+      { bomLineId: board.bomLineId, parentItemId: 'SA-200', childItemId: 'RM-300', kind: '未割当' },
+    ]);
+  });
+
+  it('refuses to end an operation that M-BOM lines use, until they are reassigned', () => {
+    let state = convertedChair();
+    const assembly = currentOperations(state.operations, 'FG-100')[0];
+    const refused = reducer(state, { type: 'operation/end', operationId: assembly.operationId, effectiveToDay: 1 });
+    expect(refused.lastError).toContain('投入工程のため終了できません');
+    expect(refused.operations).toEqual(state.operations);
+
+    for (const line of currentMbomLines(state.bomLines).filter((l) => l.parentItemId === 'FG-100')) {
+      state = reducer(state, { type: 'mbom/assignOperation', bomLineId: line.bomLineId, opCode: 'OP20' });
+    }
+    state = reducer(state, { type: 'operation/end', operationId: assembly.operationId, effectiveToDay: 1 });
+    expect(state.lastError).toBeNull();
+    expect(currentOperations(state.operations, 'FG-100').map((o) => o.opCode)).toEqual(['OP20']);
+    expect(checkInputOperations(state.bomLines, state.operations)).toEqual([]);
+  });
+
+  it('keeps assignments valid when the operation is revised or reordered (the code does not change)', () => {
+    let state = convertedChair();
+    const assembly = currentOperations(state.operations, 'FG-100')[0];
+    state = reducer(state, { type: 'operation/revise', operationId: assembly.operationId, patch: { stdTimeMin: 25 }, effectiveFromDay: 2 });
+    state = reducer(state, { type: 'operation/reorder', itemId: 'FG-100', opCodesInOrder: ['OP20', 'OP10'], effectiveFromDay: 3 });
+    expect(state.lastError).toBeNull();
+    expect(checkInputOperations(state.bomLines, state.operations)).toEqual([]);
+  });
+
+  it('reports lines of a variant item without operations as unassigned', () => {
+    let state = createWoodenChairDemoState();
+    state = reducer(state, { type: 'variant/resolveConfiguration', baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '布張り' }, resolvedItemId: 'FG-101', resolvedItemName: '木製イス（布張り）' });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0, configuration: { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '布張り' }, resolvedItemId: 'FG-101' } });
+    const issues = checkInputOperations(state.bomLines, state.operations);
+    // FG-101は新しい品目で工程が無いため、FG-101を親とする行は未割当。座面ASSYを親とする行は割り当て済み
+    expect(issues.every((i) => i.parentItemId === 'FG-101' && i.kind === '未割当')).toBe(true);
+    expect(issues.length).toBeGreaterThan(0);
   });
 });
