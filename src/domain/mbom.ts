@@ -39,6 +39,47 @@ export function convertEbomToMbom(
   return result;
 }
 
+// 変換結果を既存のM-BOMへ取り込む（design.md PLM-EXT-16）。
+// 再変換のたびに行を足すだけだと、同じ構成のM-BOM行が重複する。同じ変換範囲（`isInScope`が真の行）について、
+// ①変換結果に無くなった現行行は`effectiveToDay`を設定して旧版化し（履歴は消さない）、
+// ②変換結果と同じ`bomLineId`の現行行があればそのまま残し（`processStep`だけ最新の工順マップに合わせる）、
+// ③それ以外の変換結果を新しい行として追加する。
+// 変換範囲は「バリアント構成なしの変換」と「確定品目ごとの変換」（PLM-EXT-5のサフィックス）で分かれ、
+// ある範囲の再変換が別の範囲の行を旧版化することはない。
+export function mergeConvertedMbom(
+  bomLines: PlmBomLine[],
+  converted: PlmBomLine[],
+  isInScope: (line: PlmBomLine) => boolean,
+  effectiveFromDay: number,
+): { added: number; closed: number; kept: number } {
+  const convertedIds = new Set(converted.map((l) => l.bomLineId));
+  const currentInScope = currentMbomLines(bomLines).filter(isInScope);
+
+  const toClose = currentInScope.filter((l) => !convertedIds.has(l.bomLineId));
+  const tooEarly = toClose.find((l) => effectiveFromDay < l.effectiveFromDay);
+  if (tooEarly) {
+    throw new Error(
+      `再変換の有効開始日（${effectiveFromDay}日目）が、旧版化するM-BOM行 ${tooEarly.bomLineId} の有効開始日（${tooEarly.effectiveFromDay}日目）より前です`,
+    );
+  }
+  for (const line of toClose) line.effectiveToDay = effectiveFromDay;
+
+  const currentById = new Map(currentInScope.map((l) => [l.bomLineId, l]));
+  let added = 0;
+  let kept = 0;
+  for (const line of converted) {
+    const existing = currentById.get(line.bomLineId);
+    if (existing) {
+      existing.processStep = line.processStep;
+      kept += 1;
+    } else {
+      bomLines.push(line);
+      added += 1;
+    }
+  }
+  return { added, closed: toClose.length, kept };
+}
+
 // 4.5・7.6：代替部品グループの解決。4.4の resolveConfiguration と同じ
 // 「複数の選択肢から1つを選ぶ」パターンだが、既定選択（優先順位最上位の承認済み品目）が
 // 自動的に選ばれる点が異なる（オプショングループには既定の選択という概念が無い）。

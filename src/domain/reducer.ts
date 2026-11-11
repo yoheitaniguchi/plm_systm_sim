@@ -201,9 +201,16 @@ function applyAction(draft: AppState, action: AppAction): void {
       // バリアント解決を経た変換の場合、テンプレートを共有する複数の確定品目
       // （例：FG-100とFG-101）を同一セッションで変換してもbomLineIdが衝突しないようにする。
       const suffix = action.configuration ? `-${action.configuration.resolvedItemId}` : '';
-      for (const line of converted) {
-        draft.bomLines.push({ ...line, bomLineId: `${line.bomLineId}${suffix}` });
-      }
+      // 再変換で行が重複しないよう、同じ変換範囲の既存M-BOM行と突き合わせて取り込む（PLM-EXT-16）。
+      // 変換範囲はbomLineIdのサフィックス（確定品目コード）で見分ける。サフィックスなしは構成なしの変換。
+      const itemSuffixes = draft.items.map((i) => `-${i.itemId}`);
+      const scopeOf = (line: PlmBomLine) => itemSuffixes.find((s) => line.bomLineId.endsWith(s)) ?? '';
+      mbom.mergeConvertedMbom(
+        draft.bomLines,
+        converted.map((line) => ({ ...line, bomLineId: `${line.bomLineId}${suffix}` })),
+        (line) => scopeOf(line) === suffix,
+        action.effectiveFromDay,
+      );
       break;
     }
     case 'mbom/setAlternateOverride': {
