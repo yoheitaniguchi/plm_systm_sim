@@ -89,6 +89,9 @@ export interface PlmBomLine extends BomLine {
   effectiveFromDay: number; // production_system_simに合わせ、D0起点の整数日数
   effectiveToDay?: number;
   processStep?: string; // M-BOMのみ：工程コード（RoutingStep.stepNoに対応）
+  // M-BOMのみ：この行を作った変換の範囲（PLM-EXT-16）。バリアント構成を指定した変換では確定品目コード、
+  // 構成なしの変換では未設定。再変換のとき、同じ範囲の行だけを突き合わせる対象にする
+  mbomScope?: string;
   isEbomOnly?: boolean; // 脚部ユニットのようなE-BOM限定の機能グループ（4.1）
   optionGroupId?: string; // このBOM行が属するオプショングループ（未設定なら固定行、4.4）
   optionCode?: string; // optionGroupId設定時のみ有効：このBOM行が表すオプションの識別子

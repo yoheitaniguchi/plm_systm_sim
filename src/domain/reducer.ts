@@ -159,7 +159,9 @@ function applyAction(draft: AppState, action: AppAction): void {
       break;
     }
     case 'ebom/reviseLine': {
-      const newBomLineId = nextId(draft, 'E');
+      // プリセットや取り込みで使われている行IDと衝突しないIDを発番する（PLM-EXT-16）
+      let newBomLineId = nextId(draft, 'E');
+      while (draft.bomLines.some((l) => l.bomLineId === newBomLineId)) newBomLineId = nextId(draft, 'E');
       ebom.reviseEbomLine(draft.bomLines, action.bomLineId, action.patch, newBomLineId, action.effectiveFromDay);
       break;
     }
@@ -201,9 +203,15 @@ function applyAction(draft: AppState, action: AppAction): void {
       // バリアント解決を経た変換の場合、テンプレートを共有する複数の確定品目
       // （例：FG-100とFG-101）を同一セッションで変換してもbomLineIdが衝突しないようにする。
       const suffix = action.configuration ? `-${action.configuration.resolvedItemId}` : '';
-      for (const line of converted) {
-        draft.bomLines.push({ ...line, bomLineId: `${line.bomLineId}${suffix}` });
-      }
+      // 再変換で行が重複しないよう、同じ変換範囲の既存M-BOM行と突き合わせて取り込む（PLM-EXT-16）。
+      // 変換範囲（構成なし／確定品目ごと）は各行のmbomScopeに記録する。
+      const scope = action.configuration?.resolvedItemId;
+      mbom.mergeConvertedMbom(
+        draft.bomLines,
+        converted.map((line) => ({ ...line, bomLineId: `${line.bomLineId}${suffix}`, mbomScope: scope })),
+        scope,
+        action.effectiveFromDay,
+      );
       break;
     }
     case 'mbom/setAlternateOverride': {
@@ -304,7 +312,8 @@ function applyAction(draft: AppState, action: AppAction): void {
         }
         if (action.resolution === 'theirs' && theirsLine) {
           const ourIdx = draft.bomLines.findIndex(
-            (l) => l.bomType === 'M' && `${l.parentItemId}::${l.childItemId}` === action.key,
+            // 旧版化した行（PLM-EXT-16）は履歴なので書き換えない。現行行だけを対象にする
+            (l) => l.bomType === 'M' && l.effectiveToDay === undefined && `${l.parentItemId}::${l.childItemId}` === action.key,
           );
           if (ourIdx >= 0) {
             draft.bomLines[ourIdx] = { ...draft.bomLines[ourIdx], qtyPer: theirsLine.qtyPer };
