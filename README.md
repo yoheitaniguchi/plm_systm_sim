@@ -44,6 +44,7 @@ src/
     document.ts            # 文書・版数
     masterSnapshot.ts      # MasterSnapshotの取り込み・書き出し・SSOT競合検知（3-wayマージ）
     operation.ts           # 工程（BOP）：追加・改訂・順序変更・終了、工順との相互変換
+    resource.ts            # 資源（BOR）：工程ごとの設備・治具工具・スキル
     impactAnalysis.ts      # BOM逆展開・影響分析・原価影響の簡易算出
     reducer.ts              # 全ドメインを束ねるreducer（useReducer用）
     presets.ts              # 教材用サンプルデータ（木製イス／自転車／コンベア装置）

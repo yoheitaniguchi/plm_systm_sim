@@ -122,6 +122,22 @@ export interface Operation {
   changeId?: string; // 由来のECO（任意）
 }
 
+// ---------- 資源（BOR、PLM-EXT-19） ----------
+// 工程ごとに必要な設備・治具工具・作業者スキル。PLM独自で、MasterSnapshotには書き出さない（受け口が無い）。
+// 版管理はしない（追加と削除だけ。削除すると履歴は残らない）。
+export type ResourceKind = '設備' | '治具・工具' | '作業者スキル';
+
+export interface OperationResource {
+  resourceId: string;
+  itemId: string; // ┐ 工程を（品目、工程コード）で指す。
+  opCode: string; // ┘ 工程の版や順序が変わっても付け替え不要
+  kind: ResourceKind;
+  code: string;
+  name: string;
+  requiredQty?: number; // 必要数 ┐ どちらか一方
+  requiredTimeMin?: number; // 必要時間（分）┘
+}
+
 // バリアント構成の選択結果（4.4）。1つの構成が1つの具体的な品目に対応する。
 export interface Configuration {
   configId: string;

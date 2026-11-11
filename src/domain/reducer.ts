@@ -8,6 +8,7 @@ import * as item from './item';
 import * as masterSnapshot from './masterSnapshot';
 import * as mbom from './mbom';
 import * as operation from './operation';
+import * as resource from './resource';
 import type {
   ApproverDecision,
   ChangeReason,
@@ -19,6 +20,7 @@ import type {
   ItemLifecycleStatus,
   MasterSnapshot,
   Operation,
+  OperationResource,
   Passthrough,
   PlmBomLine,
   PlmItem,
@@ -34,6 +36,7 @@ export interface AppState {
   documents: DesignDocument[];
   configurations: Configuration[];
   operations: Operation[]; // 工程（BOP）。全品目・全版が混在。現在有効な工程が工順として書き出される（PLM-EXT-17）
+  operationResources: OperationResource[]; // 資源（BOR）。PLM独自で書き出さない。版管理なし（PLM-EXT-19）
   passthrough: Passthrough;
   alternateOverrides: Record<string, string>; // alternateGroupId -> childItemId（4.5・7.6）
   syncSession: SyncSession | null;
@@ -54,6 +57,7 @@ export function createInitialState(): AppState {
     documents: [],
     configurations: [],
     operations: [],
+    operationResources: [],
     passthrough: { workCenters: [], customers: [], suppliers: [] },
     alternateOverrides: {},
     syncSession: null,
@@ -112,6 +116,8 @@ export type AppAction =
     }
   | { type: 'operation/reorder'; itemId: string; opCodesInOrder: string[]; effectiveFromDay: number; changeId?: string }
   | { type: 'operation/end'; operationId: string; effectiveToDay: number }
+  | { type: 'resource/add'; input: Omit<resource.NewResourceInput, 'resourceId'> }
+  | { type: 'resource/remove'; resourceId: string }
   | { type: 'change/create'; input: changeManagement.NewChangeRequestInput }
   | { type: 'change/submitForReview'; changeId: string }
   | { type: 'change/recordApproval'; changeId: string; decision: ApproverDecision }
@@ -154,6 +160,8 @@ function applyAction(draft: AppState, action: AppAction): void {
       draft.items = result.items;
       draft.bomLines = result.bomLines;
       draft.operations = result.operations;
+      // 取り込みはマスタ全体の置き換え。資源が指していた工程は無くなるので、資源も消す（PLM-EXT-19）
+      draft.operationResources = [];
       draft.passthrough = result.passthrough;
       draft.syncSession = result.session;
       draft.currentDay = action.importedAtDay;
@@ -298,7 +306,27 @@ function applyAction(draft: AppState, action: AppAction): void {
           );
         }
       }
+      // 資源が登録されている工程も終了できない（先に資源を削除する。PLM-EXT-19）
+      if (target && target.effectiveToDay === undefined) {
+        const used = resource.resourcesOfOperation(draft.operationResources, target.itemId, target.opCode);
+        if (used.length > 0) {
+          throw new Error(
+            `工程 ${target.opCode}（${target.itemId}）には資源が${used.length}件登録されているため終了できません。先に資源を削除してください`,
+          );
+        }
+      }
       operation.endOperation(draft.operations, action.operationId, action.effectiveToDay);
+      break;
+    }
+
+    case 'resource/add': {
+      let resourceId = nextId(draft, 'RES');
+      while (draft.operationResources.some((r) => r.resourceId === resourceId)) resourceId = nextId(draft, 'RES');
+      resource.addResource(draft.operationResources, draft.operations, { ...action.input, resourceId });
+      break;
+    }
+    case 'resource/remove': {
+      resource.removeResource(draft.operationResources, action.resourceId);
       break;
     }
 

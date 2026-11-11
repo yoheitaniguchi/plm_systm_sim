@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { checkInputOperations, currentMbomLines, linesUsingOperation } from '../../domain/mbom';
 import { canReviseOn, currentOperations } from '../../domain/operation';
+import { resourcesOfOperation } from '../../domain/resource';
 import type { AppAction, AppState } from '../../domain/reducer';
 import type { Operation } from '../../domain/types';
 
@@ -116,7 +117,7 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
               </button>
             </p>
           )}
-          <p className="muted">投入部品がある工程は終了できません。先に下の「投入部品と投入工程」で投入工程を変えてください。</p>
+          <p className="muted">投入部品や資源がある工程は終了できません。先に下の「投入部品と投入工程」で投入工程を変えるか、「資源（BOR）」タブで資源を削除してください。</p>
           {operations.length === 0 ? (
             <p>工程がまだありません。下の「工程を追加」から登録してください。</p>
           ) : (
@@ -131,12 +132,15 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
                   <th scope="col">版</th>
                   <th scope="col">有効開始日</th>
                   <th scope="col">投入部品</th>
+                  <th scope="col">資源</th>
                   <th scope="col">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {operations.map((o, index) => {
                   const users = linesUsingOperation(state.bomLines, o.itemId, o.opCode);
+                  const resourceCount = resourcesOfOperation(state.operationResources, o.itemId, o.opCode).length;
+                  const endBlockedBy = [users.length > 0 ? '投入部品' : '', resourceCount > 0 ? '資源' : ''].filter(Boolean);
                   return (
                     <tr key={o.opCode}>
                       <td>{o.stepNo}</td>
@@ -150,6 +154,7 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
                       <td>{o.version}</td>
                       <td>D{o.effectiveFromDay}</td>
                       <td>{users.length === 0 ? 'なし' : users.map((l) => itemName(l.childItemId)).join('、')}</td>
+                      <td>{resourceCount}件</td>
                       <td className="actions-cell">
                         <button type="button" className="secondary-button" disabled={index === 0 || !canMove(index, -1)} aria-label={`${o.opCode} ${o.name}を前へ`} onClick={() => move(index, -1)}>
                           ↑
@@ -175,13 +180,13 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
                         <button
                           type="button"
                           className="secondary-button"
-                          disabled={users.length > 0}
+                          disabled={endBlockedBy.length > 0}
                           aria-label={`${o.opCode} ${o.name}を終了`}
                           onClick={() => setEndingId(o.operationId)}
                         >
                           終了
                         </button>
-                        {users.length > 0 && <span className="muted">投入部品あり（終了不可）</span>}
+                        {endBlockedBy.length > 0 && <span className="muted">{endBlockedBy.join('・')}あり（終了不可）</span>}
                       </td>
                     </tr>
                   );
@@ -190,7 +195,9 @@ export function OperationTab({ state, dispatch }: OperationTabProps) {
             </table>
           )}
 
-          {ending && linesUsingOperation(state.bomLines, ending.itemId, ending.opCode).length === 0 && (
+          {ending &&
+            linesUsingOperation(state.bomLines, ending.itemId, ending.opCode).length === 0 &&
+            resourcesOfOperation(state.operationResources, ending.itemId, ending.opCode).length === 0 && (
             <div className="banner banner--warning">
               <p>
                 {ending.opCode} {ending.name}をD{state.currentDay}で終了します。元に戻せず、工程コード{ending.opCode}は再利用されません。
