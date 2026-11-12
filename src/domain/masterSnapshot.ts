@@ -226,6 +226,7 @@ export function importMasterSnapshot(
       baseline: snapshot,
       touchedItemIds: new Set(),
       touchedBomKeys: new Set(),
+      touchedRoutingItemIds: new Set(),
     },
   };
 }
@@ -343,6 +344,45 @@ export async function hashSnapshot(snapshot: MasterSnapshot): Promise<string> {
     .join('');
 }
 
+// 工順の比較用：ある品目の工順一式を、順序どおり・項目の並びをそろえて取り出す
+export function routingOfItem(routingSteps: RoutingStep[], itemId: string): RoutingStep[] {
+  return routingSteps
+    .filter((s) => s.itemId === itemId)
+    .sort((a, b) => a.stepNo - b.stepNo)
+    .map((s) => {
+      const step: RoutingStep = { itemId: s.itemId, stepNo: s.stepNo, workCenter: s.workCenter, stdTimeMin: s.stdTimeMin };
+      if (s.setupMin !== undefined) step.setupMin = s.setupMin;
+      return step;
+    });
+}
+
+// 相手側が工順を変えた品目（ベースラインと現在で、その品目の工順一式が違う品目）
+export function routingItemsChangedByThem(baseline: MasterSnapshot, current: MasterSnapshot): string[] {
+  const ids = new Set([...baseline.routingSteps, ...current.routingSteps].map((s) => s.itemId));
+  return [...ids].filter(
+    (id) => JSON.stringify(routingOfItem(baseline.routingSteps, id)) !== JSON.stringify(routingOfItem(current.routingSteps, id)),
+  );
+}
+
+// 書き出すスナップショットの工順が、production_system_sim側の取り込みで拒否されないかを調べる（PLM-EXT-20）。
+// 工順が指す品目・作業区の存在と、同じ品目内の順序の重複を見る。
+export function checkSnapshotRouting(snapshot: MasterSnapshot): string[] {
+  const problems: string[] = [];
+  const itemIds = new Set(snapshot.items.map((i) => i.itemId));
+  const workCenterIds = new Set(snapshot.workCenters.map((w) => w.workCenter));
+  const seen = new Set<string>();
+  for (const step of snapshot.routingSteps) {
+    if (!itemIds.has(step.itemId)) problems.push(`工順が参照する品目 ${step.itemId} が品目マスタにありません`);
+    if (!workCenterIds.has(step.workCenter)) {
+      problems.push(`品目 ${step.itemId} の工順 ${step.stepNo} が参照する作業区 ${step.workCenter} がありません`);
+    }
+    const key = `${step.itemId}:${step.stepNo}`;
+    if (seen.has(key)) problems.push(`品目 ${step.itemId} の工順 ${step.stepNo} が重複しています`);
+    seen.add(key);
+  }
+  return [...new Set(problems)];
+}
+
 // 3-wayマージの本体。「PLM側が触っていない箇所」はcurrent（相手側の今）を
 // 自動採用し、「両方が触っていた箇所」だけをconflictとして人間に上げる。
 export function preflightExport(
@@ -350,6 +390,7 @@ export function preflightExport(
   current: MasterSnapshot, // ユーザーが再取得したproduction_system_simの最新
   ourItems: PlmItem[],
   ourMbomLines: PlmBomLine[],
+  ourOperations: Operation[] = [],
 ): ExportPreflightResult {
   const conflicts: ConflictDetail[] = [];
   const autoMergedNotes: string[] = [];
@@ -407,21 +448,49 @@ export function preflightExport(
     }
   }
 
+  // 工順（PLM-EXT-20）。品目・BOM行と同じ3値比較だが、比較の単位は「品目ごとの工順一式」（キーは品目コード）。
+  // 行（品目＋順序）単位にすると、順序の入れ替えで別の行同士を比べてしまうため。
+  // これは拡張仕様 v2.0「MasterSnapshot連携は作り直さない」に対する唯一の例外（工順だけ）。
+  const ourRouting = routingStepsFromOperations(ourOperations);
+  const theirsChangedRouting = new Set(routingItemsChangedByThem(session.baseline, current));
+  const mergedRouting: RoutingStep[] = [];
+  const routingItemIds = new Set(
+    [...session.baseline.routingSteps, ...current.routingSteps, ...ourRouting].map((s) => s.itemId),
+  );
+  for (const id of routingItemIds) {
+    const base = routingOfItem(session.baseline.routingSteps, id);
+    const theirs = routingOfItem(current.routingSteps, id);
+    const ours = routingOfItem(ourRouting, id);
+    const weTouched = session.touchedRoutingItemIds.has(id);
+    const theyChanged = theirsChangedRouting.has(id);
+
+    if (weTouched && theyChanged) {
+      conflicts.push({ kind: 'routing', key: id, baseline: base, ours, theirs });
+    } else if (weTouched) {
+      mergedRouting.push(...ours);
+    } else if (theyChanged) {
+      autoMergedNotes.push(
+        `品目 ${id} の工順：production_system_sim側の変更を自動的に採用しました。エクスポートを確定すると、PLM側の工程もこの工順に合わせます（相手側に無い工程は終了し、その工程の資源は消えます）`,
+      );
+      mergedRouting.push(...theirs);
+    } else {
+      mergedRouting.push(...base);
+    }
+  }
+
   // 作業区・得意先・仕入先（passthrough）はPLM側が一切編集しないため、weTouchedは常にfalseになる。
   // つまりconflictは原理的に起こらず、常にproduction_system_sim側の最新（current）を
-  // そのまま採用するだけでよい。工順（routingSteps）は工程としてPLMが持つが（PLM-EXT-17）、
-  // 3-wayマージへの組み込みは別途行うため、ここではまだ相手側の最新を採用する。ただしtheirsがbaselineと違えばautoMergedNotesに記録し、
-  // 「PLMが把握していない間に何が変わったか」を可視化する（工順・作業区の追加等）。
+  // そのまま採用するだけでよい。ただしtheirsがbaselineと違えばautoMergedNotesに記録し、
+  // 「PLMが把握していない間に何が変わったか」を可視化する（作業区の追加等）。工順は上の3-wayマージで扱う。
   const passthroughChanged =
-    JSON.stringify(session.baseline.routingSteps) !== JSON.stringify(current.routingSteps) ||
     JSON.stringify(session.baseline.workCenters) !== JSON.stringify(current.workCenters) ||
     JSON.stringify(session.baseline.customers) !== JSON.stringify(current.customers) ||
     JSON.stringify(session.baseline.suppliers) !== JSON.stringify(current.suppliers);
   if (passthroughChanged) {
-    autoMergedNotes.push('工順／作業区／得意先／仕入先のいずれかがproduction_system_sim側で変更されています（自動的に最新を採用）');
+    autoMergedNotes.push('作業区／得意先／仕入先のいずれかがproduction_system_sim側で変更されています（自動的に最新を採用）');
   }
   const mergedPassthrough: Omit<MasterSnapshot, 'version' | 'items' | 'bom'> = {
-    routingSteps: current.routingSteps,
+    routingSteps: mergedRouting,
     workCenters: current.workCenters,
     customers: current.customers,
     suppliers: current.suppliers,
@@ -430,9 +499,11 @@ export function preflightExport(
   if (conflicts.length > 0) {
     return { status: 'conflict', conflicts };
   }
+  const mergedSnapshot: MasterSnapshot = { version: 1, items: mergedItems, bom: mergedBom, ...mergedPassthrough };
   return {
     status: autoMergedNotes.length > 0 ? 'autoMerged' : 'clean',
-    mergedSnapshot: { version: 1, items: mergedItems, bom: mergedBom, ...mergedPassthrough },
+    mergedSnapshot,
     autoMergedNotes,
+    exportProblems: checkSnapshotRouting(mergedSnapshot),
   };
 }

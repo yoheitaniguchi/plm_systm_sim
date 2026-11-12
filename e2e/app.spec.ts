@@ -287,3 +287,44 @@ test.describe('resources / BOR (PLM-EXT-19)', () => {
     await expect(list.getByRole('row')).toHaveCount(2);
   });
 });
+
+test.describe('routing 3-way merge (PLM-EXT-20)', () => {
+  test('shows a routing conflict in the sync tab and resolves it with the other side', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+
+    // PLM側で木製イスに工程を足す（＝この品目の工順をPLMが触った）
+    await page.getByRole('button', { name: '工程（BOP）', exact: true }).click();
+    await page.getByLabel('名称').fill('梱包');
+    await page.getByLabel('作業区（取り込み済みの作業区から選びます）').selectOption('WC-INS');
+    await page.getByLabel('標準時間（分）').fill('5');
+    await page.getByRole('button', { name: '木製イスの末尾に追加' }).click();
+    const opTable = page.getByRole('table').first();
+    await expect(opTable.getByRole('cell', { name: 'OP30', exact: true })).toBeVisible();
+
+    // 相手側でも、同じ品目の工順（検査の標準時間）を変えていたことにする
+    await page.getByRole('button', { name: '連携', exact: true }).click();
+    await page.getByRole('button', { name: '木製イスのサンプルを読み込む' }).click();
+    const sample = JSON.parse(await page.getByPlaceholder('production_system_simから書き出したMasterSnapshot JSONを貼り付け').inputValue());
+    sample.routingSteps.find((s: { itemId: string; stepNo: number }) => s.itemId === 'FG-100' && s.stepNo === 20).stdTimeMin = 15;
+    await page.getByPlaceholder('現状確認用のMasterSnapshot JSON').fill(JSON.stringify(sample));
+    await page.getByRole('button', { name: '現状確認を実行' }).click();
+
+    await expect(page.getByText('結果: conflict')).toBeVisible();
+    const row = page.getByRole('row').filter({ hasText: 'FG-100' });
+    await expect(row.getByRole('cell', { name: '工順', exact: true })).toBeVisible();
+    await expect(row).toContainText('順序30：WC-INS／標準5分');
+    await expect(row).toContainText('順序20：WC-INS／標準15分');
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
+
+    await row.getByRole('button', { name: '相手側を採用' }).click();
+    await expect(page.getByText('結果: conflict')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'MasterSnapshot.jsonをダウンロード' })).toBeEnabled();
+
+    // PLM側の工程も相手側の工順に合う：梱包（OP30）は終了し、検査は15分になる
+    await page.getByRole('button', { name: '工程（BOP）', exact: true }).click();
+    await expect(opTable.getByRole('cell', { name: 'OP30', exact: true })).toHaveCount(0);
+    await expect(opTable.getByRole('row').filter({ hasText: '検査' })).toContainText('15');
+  });
+});

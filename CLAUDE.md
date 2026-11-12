@@ -70,7 +70,7 @@ plm_systm_sim/
     │   ├── resource.ts                  # 資源（BOR）：工程ごとの設備・治具工具・スキルの追加・削除、横断一覧（PLM-EXT-19）
     │   ├── reducer.ts                  # useReducer用reducer。actionを各モジュールへディスパッチ
     │   ├── presets.ts                  # 教材用サンプルデータ（木製イス／自転車は4章、コンベア装置はPLM-EXT-15）
-    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（148件）
+    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（170件）
     └── ui/                        # 画面（design.md §5）
         ├── App.tsx                    # タブナビゲーション＋オンボーディングの保持
         ├── Onboarding.tsx              # 初回起動時の5ステップガイド（要件書10.2）
@@ -98,7 +98,7 @@ npm run dev          # 開発サーバー起動（ルート配信）
 npm run build        # 型チェック（tsc -b）＋ビルド（vite build、GitHub Pages用baseパス）
 npm run typecheck    # 型チェックのみ実行（tsc -b --noEmit）
 npm run lint         # eslint
-npm test             # vitestによる自動テスト全件実行（148件、要件書8章の42ユースケース相当＋PLM-EXT-13〜19分）
+npm test             # vitestによる自動テスト全件実行（170件、要件書8章の42ユースケース相当＋PLM-EXT-13〜20分）
 npx vitest run <path> # 特定テストのみ実行（例: npx vitest run src/domain/__tests__/mbom.test.ts）
 npm run preview      # build成果物をGitHub Pages相当のbaseパスで動作確認
 npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリティ自動検査（npm run devを自動起動）
@@ -133,7 +133,7 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   状態を各ドメインモジュールへ渡し、モジュール側が直接書き換える設計）を実装済み。教材データは
   `presets.ts`に木製イす（`createWoodenChairDemoState()`、脚部ユニットグループ・座面バリアント・脚の
   代替部品グループを含む）・自転車（`bicycleMasterSnapshot`、4階層BOM）・コンベア装置
-  （`conveyorMasterSnapshot`、`mini-simulator`の実BOMが骨格、共通部品ボルトを含む3階層BOM、工順は空。
+  （`conveyorMasterSnapshot`、`mini-simulator`の実BOMが骨格、共通部品ボルトを含む3階層BOM、作業区・工順は本リポジトリで仮に定めた値。
   PLM-EXT-15）の3題材を用意
 - 発注BOM（`impactAnalysis.buildPurchaseBom()`）・計画BOM（`planningBom.explodePlanningBom()`）は
   確定済みM-BOMを対象とした読み取り専用の派生ビュー。いずれも代替部品グループ
@@ -142,7 +142,7 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   ディスパッチ時（`reducer.effectiveMbomLines()`を`structuredClone`）に記録し、`ImpactTab.tsx`の
   「ECRごとの原価影響（起票時点比較）」から`computeCostImpact()`でクローズ前後の原価差分を確認できる
   （PLM-EXT-14）。既存の代替部品切替の前後比較機能は維持したまま追加した
-- `src/domain/__tests__/`：148件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
+- `src/domain/__tests__/`：170件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
   IMPACT/ALT/VARIANT、計42件相当）＋発注BOM・計画BOM・ECOのbefore/after BOM比較・コンベア装置プリセット・M-BOM再変換（PLM-EXT-16）のテストを検証済み
 - `src/ui/`：11タブの画面（9ドメイン＋工程（BOP）・資源（BOR））＋木製イすの5ステップオンボーディングツアー（要件書10.2の台本どおり、
   脚部ユニットのハイライト→M-BOM変換のライブデモを含む）を実装済み。ステップ3の変換操作では
@@ -150,8 +150,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   （`prefers-reduced-motion: reduce`時は即時切替、要件書10.3）。`App.tsx`は`useReducer`で
   reducerを保持し、タブ切り替えとオンボーディング表示の制御のみを行う
 - `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、11タブ横断のナビゲーション、工程の編集と投入工程の割り当て、資源の追加と削除、
-  ECR→ECO→ECN→クローズの一連の操作フロー、アクセシビリティスキャン（critical/serious違反ゼロ）を
-  ブラウザで確認済み（13件、全件green）
+  ECR→ECO→ECN→クローズの一連の操作フロー、連携タブでの工順の競合の解決、アクセシビリティスキャン
+  （critical/serious違反ゼロ）をブラウザで確認済み（14件、全件green）
 - `.github/workflows/`：`test.yml`（PR gate）・`deploy.yml`（GitHub Pages自動デプロイ）・
   `pr-preview.yml`（PRプレビュー配信）を整備済み
 
@@ -184,7 +184,11 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 - **工順の正本は工程（`AppState.operations`）**：`passthrough`に工順は無い。工程はBOM行と同じ「版数＋有効日」で
   改訂・順序変更・終了の履歴を残し、参照には版や順序で変わらない工程コード（`opCode`）を使う。作業区はPLMで
   追加せず、取り込み済みのものだけを指定できる。書き出すのは現在有効な工程の工順の項目だけ
-  （design.md 追加決定PLM-EXT-17参照。工順の3-wayマージは未実装）
+  （design.md 追加決定PLM-EXT-17参照）
+- **工順も3-wayマージする**：比較の単位は品目ごとの工順一式。PLMで工程を編集した品目は操作の時点で
+  `touchedRoutingItemIds`に記録する（工程の編集はECOを経由しない直接編集のため）。相手側を採用したら
+  `operation.adoptRoutingSteps()`でPLM側の工程も合わせ、終了した工程の資源は消す。書き出せない内容
+  （`exportProblems`）が残る間はエクスポートを確定できない（design.md 追加決定PLM-EXT-20参照）
 - **M-BOM行の`processStep`は「親品目の投入工程」**：子品目を親品目のどの工程で投入するかを、親品目の工程コードで指す
   （子品目自身の工順ではない）。変換時の既定値は親の最初の工程。割り当ての変更は版を上げずその場で書き換え、
   再変換では上書きしない。未割当・無効は警告のみ。参照されている工程は終了できない（design.md 追加決定PLM-EXT-18参照）

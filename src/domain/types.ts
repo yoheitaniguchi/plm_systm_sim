@@ -223,10 +223,15 @@ export interface SyncSession {
   baseline: MasterSnapshot;
   touchedItemIds: Set<string>;
   touchedBomKeys: Set<string>; // `${parentItemId}::${childItemId}` 形式
+  // PLM側で工程を追加・改訂・順序変更・終了した品目（PLM-EXT-20）。工程の編集は変更管理（ECO）を経由しない
+  // 直接編集なので、品目・BOM行（ECOクローズ時に記録）と違い、操作の時点で記録する
+  touchedRoutingItemIds: Set<string>;
 }
 
 export interface ConflictDetail {
-  kind: 'item' | 'bomLine' | 'passthrough';
+  // routing＝品目ごとの工順一式（キーは品目コード。PLM-EXT-20）。
+  // 作業区・得意先・仕入先はPLMが編集しないため競合にならない（常に相手側の最新を採用する）
+  kind: 'item' | 'bomLine' | 'routing';
   key: string;
   baseline: unknown;
   ours: unknown; // PLM側で変更した後の値
@@ -238,6 +243,9 @@ export interface ExportPreflightResult {
   mergedSnapshot?: MasterSnapshot; // status !== 'conflict' の場合のみ
   conflicts?: ConflictDetail[]; // status === 'conflict' の場合のみ
   autoMergedNotes?: string[]; // 参考情報：自動的に取り込んだ相手側の変更点
+  // 書き出すとproduction_system_sim側の取り込みで拒否される内容（工順が指す品目・作業区が無い等）。
+  // 残っている間はエクスポートを確定できない（PLM-EXT-20）
+  exportProblems?: string[];
 }
 
 export const MAX_BOM_DEPTH = 20; // production_system_simの制約を踏襲

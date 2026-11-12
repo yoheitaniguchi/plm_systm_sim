@@ -306,11 +306,10 @@ describe('mbom/convert re-conversion (PLM-EXT-16)', () => {
   });
 
   it('fills the input operation of unassigned lines on re-conversion, without adding lines', () => {
-    // コンベア装置は工順が空なので、最初の変換では投入工程が未割当になる
-    let state = importConveyorAndConvert();
+    // 工順が空のスナップショットを取り込むと、最初の変換では投入工程が未割当になる
+    let state = reducer(createInitialState(), { type: 'sync/import', json: { ...conveyorMasterSnapshot, routingSteps: [] }, importedAtDay: 0 });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0 });
     expect(currentM(state).every((l) => l.processStep === undefined)).toBe(true);
-    // 作業区が無いと工程を作れないため、テストでは作業区を直接足す（作業区はPLMの画面では追加できない）
-    state = { ...state, passthrough: { ...state.passthrough, workCenters: [{ workCenter: 'WC-ASM', ratePerHour: 2400, capacityMinPerDay: 480 }] } };
     state = reducer(state, { type: 'operation/add', input: { itemId: 'SA-820', name: '組立', workCenter: 'WC-ASM', stdTimeMin: 45, effectiveFromDay: 0 } });
     state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 0 });
     const current = currentM(state);
