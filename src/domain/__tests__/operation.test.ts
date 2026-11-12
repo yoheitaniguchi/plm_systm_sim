@@ -298,16 +298,6 @@ describe('reducer: operations (PLM-EXT-17)', () => {
     expect(new Set(state.operations.map((o) => o.operationId)).size).toBe(state.operations.length);
   });
 
-  it('still exports the other side\'s routing at preflight until the routing merge is added', () => {
-    let state = reducer(createInitialState(), { type: 'sync/import', json: woodenChairMasterSnapshot, importedAtDay: 0 });
-    state = reducer(state, {
-      type: 'operation/add',
-      input: { itemId: 'FG-100', name: '梱包', workCenter: 'WC-INS', stdTimeMin: 5, effectiveFromDay: 0 },
-    });
-    state = reducer(state, { type: 'sync/preflight', currentJson: woodenChairMasterSnapshot });
-    expect(state.exportPreflight?.mergedSnapshot?.routingSteps).toEqual(woodenChairMasterSnapshot.routingSteps);
-  });
-
   it('replaces operations on re-import and keeps new ids unique', () => {
     let state = createWoodenChairDemoState();
     const add = { type: 'operation/add', input: { itemId: 'FG-100', name: '梱包', workCenter: 'WC-INS', stdTimeMin: 5, effectiveFromDay: 0 } } as const;

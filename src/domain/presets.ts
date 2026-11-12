@@ -58,8 +58,18 @@ export const bicycleMasterSnapshot: MasterSnapshot = {
     { parentItemId: 'SA-720', childItemId: 'RM-730', qtyPer: 1 },
     { parentItemId: 'FG-700', childItemId: 'PT-740', qtyPer: 1 },
   ],
-  routingSteps: [],
-  workCenters: [],
+  // 工順・作業区はproduction_system_simの自転車プリセットと同じ構成（PLM-EXT-20）
+  routingSteps: [
+    { itemId: 'SA-720', stepNo: 10, workCenter: 'WC-WELD', stdTimeMin: 15 },
+    { itemId: 'SA-710', stepNo: 10, workCenter: 'WC-BASM', stdTimeMin: 20 },
+    { itemId: 'FG-700', stepNo: 10, workCenter: 'WC-BASM', stdTimeMin: 40 },
+    { itemId: 'FG-700', stepNo: 20, workCenter: 'WC-BINS', stdTimeMin: 15 },
+  ],
+  workCenters: [
+    { workCenter: 'WC-WELD', ratePerHour: 2400, capacityMinPerDay: 480 },
+    { workCenter: 'WC-BASM', ratePerHour: 2400, capacityMinPerDay: 480 },
+    { workCenter: 'WC-BINS', ratePerHour: 2400, capacityMinPerDay: 480 },
+  ],
   customers: [{ customerId: 'CUST-1', name: 'お客様A' }],
   suppliers: [
     { supplierId: 'SUP-1', name: '木材屋' },
@@ -75,7 +85,7 @@ export const bicycleMasterSnapshot: MasterSnapshot = {
 //     ├─ 駆動部 SA-820（内製・LT4）×1 ── モーター PT-850 ×1、歯車 PT-860 ×2、ボルト PT-880 ×4
 //     └─ 制御盤 SA-830（内製・LT2）×1 ── 電装部品 PT-870 ×3、ボルト PT-880 ×4
 // 品目構成・員数・リードタイムは mini-simulator 由来。ボルトの行・単価・売価・仕入先は mini-simulator に
-// 無いため本リポジトリで仮に定めた値。工順・作業区は空（BOP/BORの拡張で扱う）。
+// 無いため本リポジトリで仮に定めた値。工順・作業区もmini-simulatorに無く、本リポジトリで仮に定めた（PLM-EXT-20）。
 export const conveyorMasterSnapshot: MasterSnapshot = {
   version: 1,
   items: [
@@ -101,8 +111,21 @@ export const conveyorMasterSnapshot: MasterSnapshot = {
     { parentItemId: 'SA-830', childItemId: 'PT-870', qtyPer: 3 },
     { parentItemId: 'SA-830', childItemId: 'PT-880', qtyPer: 4 },
   ],
-  routingSteps: [],
-  workCenters: [],
+  routingSteps: [
+    { itemId: 'SA-810', stepNo: 10, workCenter: 'WC-CUT', stdTimeMin: 30 },
+    { itemId: 'SA-810', stepNo: 20, workCenter: 'WC-WELD', stdTimeMin: 60 },
+    { itemId: 'SA-820', stepNo: 10, workCenter: 'WC-ASM', stdTimeMin: 45 },
+    { itemId: 'SA-830', stepNo: 10, workCenter: 'WC-WIRE', stdTimeMin: 60 },
+    { itemId: 'FG-800', stepNo: 10, workCenter: 'WC-ASM', stdTimeMin: 90 },
+    { itemId: 'FG-800', stepNo: 20, workCenter: 'WC-INS', stdTimeMin: 30 },
+  ],
+  workCenters: [
+    { workCenter: 'WC-CUT', ratePerHour: 2400, capacityMinPerDay: 480 },
+    { workCenter: 'WC-WELD', ratePerHour: 2400, capacityMinPerDay: 480 },
+    { workCenter: 'WC-ASM', ratePerHour: 2400, capacityMinPerDay: 480 },
+    { workCenter: 'WC-WIRE', ratePerHour: 2400, capacityMinPerDay: 480 },
+    { workCenter: 'WC-INS', ratePerHour: 2400, capacityMinPerDay: 480 },
+  ],
   customers: [{ customerId: 'CUST-1', name: 'お客様A' }],
   suppliers: [
     { supplierId: 'SUP-1', name: '鋼材・機械部品商社' },
@@ -117,14 +140,9 @@ export function createWoodenChairDemoState(): AppState {
   const state = createInitialState();
   // 工程（BOP、PLM-EXT-17）。既定状態は取り込み（sync/import）を経由しないため、ここで工順から工程を作り、
   // 要件書4.1の記載どおりに名称を付ける（MasterSnapshotには工程の名称が無い）。
-  const operationNames: Record<string, string> = {
-    'SA-200:OP10': '切断',
-    'FG-100:OP10': '組立',
-    'FG-100:OP20': '検査',
-  };
   state.operations = operationsFromRoutingSteps(woodenChairMasterSnapshot.routingSteps).map((o) => ({
     ...o,
-    name: operationNames[`${o.itemId}:${o.opCode}`] ?? o.name,
+    name: woodenChairOperationNames[`${o.itemId}:${o.opCode}`] ?? o.name,
   }));
   state.passthrough = {
     workCenters: woodenChairMasterSnapshot.workCenters,
@@ -136,6 +154,7 @@ export function createWoodenChairDemoState(): AppState {
     baseline: woodenChairMasterSnapshot,
     touchedItemIds: new Set(),
     touchedBomKeys: new Set(),
+    touchedRoutingItemIds: new Set(),
   };
 
   createItem(state.items, { itemId: 'FG-100', name: '木製イス', makeBuy: 'MAKE', leadTimeDays: 2, salesPrice: 6000, lifecycleStatus: '量産' });
@@ -214,3 +233,28 @@ function setAlternateGroupFields(
   line.alternatePriority = alternatePriority;
   line.approvalStatus = approvalStatus;
 }
+
+// 同梱サンプルの工程の名称（`${itemId}:${opCode}` → 名称）。MasterSnapshotには工程の名称が無いので、
+// 連携タブのサンプル読み込みボタンが`sync/import`の`operationNames`として渡す（PLM-EXT-20）。
+// 貼り付けたJSONを取り込むときは使わず、名称は「工程{stepNo}」になる。
+export const woodenChairOperationNames: Record<string, string> = {
+  'SA-200:OP10': '切断',
+  'FG-100:OP10': '組立',
+  'FG-100:OP20': '検査',
+};
+
+export const bicycleOperationNames: Record<string, string> = {
+  'SA-720:OP10': '溶接',
+  'SA-710:OP10': '組立',
+  'FG-700:OP10': '総組立',
+  'FG-700:OP20': '検査',
+};
+
+export const conveyorOperationNames: Record<string, string> = {
+  'SA-810:OP10': '切断',
+  'SA-810:OP20': '溶接',
+  'SA-820:OP10': '組立',
+  'SA-830:OP10': '配線',
+  'FG-800:OP10': '総組立',
+  'FG-800:OP20': '検査',
+};

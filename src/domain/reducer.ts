@@ -83,7 +83,8 @@ function nextOperationId(draft: AppState): string {
 }
 
 export type AppAction =
-  | { type: 'sync/import'; json: unknown; importedAtDay: number }
+  // operationNamesは同梱サンプル用：工程の名称（MasterSnapshotに無い）を `${itemId}:${opCode}` で与える（PLM-EXT-20）
+  | { type: 'sync/import'; json: unknown; importedAtDay: number; operationNames?: Record<string, string> }
   | { type: 'item/create'; input: Parameters<typeof item.createItem>[1] }
   | { type: 'item/advanceLifecycle'; itemId: string; to: ItemLifecycleStatus }
   | { type: 'item/update'; itemId: string; patch: Parameters<typeof item.updateItem>[2] }
@@ -128,7 +129,7 @@ export type AppAction =
   | { type: 'document/register'; input: document.NewDocumentInput }
   | { type: 'document/revise'; docId: string }
   | { type: 'sync/preflight'; currentJson: unknown }
-  | { type: 'sync/resolveConflict'; kind: 'item' | 'bomLine'; key: string; resolution: 'ours' | 'theirs' }
+  | { type: 'sync/resolveConflict'; kind: 'item' | 'bomLine' | 'routing'; key: string; resolution: 'ours' | 'theirs' }
   | { type: 'sync/confirmExport'; sourceChangeId: string }
   | { type: 'ui/dismissError' }
   | { type: 'ui/dismissWarning' }
@@ -159,11 +160,17 @@ function applyAction(draft: AppState, action: AppAction): void {
       const result = masterSnapshot.importMasterSnapshotFromJson(action.json, action.importedAtDay);
       draft.items = result.items;
       draft.bomLines = result.bomLines;
-      draft.operations = result.operations;
+      draft.operations = result.operations.map((o) => ({
+        ...o,
+        name: action.operationNames?.[`${o.itemId}:${o.opCode}`] ?? o.name,
+      }));
       // 取り込みはマスタ全体の置き換え。資源が指していた工程は無くなるので、資源も消す（PLM-EXT-19）
       draft.operationResources = [];
       draft.passthrough = result.passthrough;
       draft.syncSession = result.session;
+      // 取り込み前の現状確認の結果は、別のマスタについてのものなので捨てる（PLM-EXT-20）
+      draft.exportPreflight = null;
+      draft.pendingCurrentSnapshot = null;
       draft.currentDay = action.importedAtDay;
       break;
     }
@@ -270,6 +277,7 @@ function applyAction(draft: AppState, action: AppAction): void {
         ...action.input,
         operationId: nextOperationId(draft),
       });
+      touchRouting(draft, action.input.itemId);
       break;
     }
     case 'operation/revise': {
@@ -282,9 +290,11 @@ function applyAction(draft: AppState, action: AppAction): void {
         action.effectiveFromDay,
         action.changeId,
       );
+      touchRouting(draft, draft.operations.find((o) => o.operationId === action.operationId)?.itemId);
       break;
     }
     case 'operation/reorder': {
+      const countBefore = draft.operations.length;
       operation.reorderOperations(
         draft.operations,
         action.itemId,
@@ -293,6 +303,8 @@ function applyAction(draft: AppState, action: AppAction): void {
         action.effectiveFromDay,
         action.changeId,
       );
+      // 今と同じ並びを渡した場合は何も変わらないので、「PLMが触った」には数えない
+      if (draft.operations.length !== countBefore) touchRouting(draft, action.itemId);
       break;
     }
     case 'operation/end': {
@@ -316,6 +328,7 @@ function applyAction(draft: AppState, action: AppAction): void {
         }
       }
       operation.endOperation(draft.operations, action.operationId, action.effectiveToDay);
+      touchRouting(draft, target?.itemId);
       break;
     }
 
@@ -376,7 +389,7 @@ function applyAction(draft: AppState, action: AppAction): void {
       masterSnapshot.assertSnapshotUsable(current);
       const session = draft.syncSession;
       if (!session) throw new Error('マスタが未インポートのためエクスポート前確認はできません');
-      const result = masterSnapshot.preflightExport(session, current, draft.items, effectiveMbomLines(draft));
+      const result = masterSnapshot.preflightExport(session, current, draft.items, effectiveMbomLines(draft), draft.operations);
       draft.exportPreflight = result;
       draft.pendingCurrentSnapshot = current;
       break;
@@ -407,6 +420,17 @@ function applyAction(draft: AppState, action: AppAction): void {
           if (ourIdx >= 0) draft.items[ourIdx] = merged;
           else draft.items.push(merged);
         }
+      } else if (action.kind === 'routing') {
+        // 工順の競合（PLM-EXT-20）。品目・BOM行と同じく、ベースラインを相手側の現在値に進めて「相手は変えていない」
+        // 状態にする。PLM側を採用するなら工程はそのまま（次の確認でPLM側の工順が書き出される）。
+        // 相手側を採用するなら、PLM側の工程も相手側の工順に合わせる
+        session.baseline.routingSteps = [
+          ...session.baseline.routingSteps.filter((s) => s.itemId !== action.key),
+          ...masterSnapshot.routingOfItem(current.routingSteps, action.key),
+        ];
+        if (action.resolution === 'theirs') {
+          adoptTheirRouting(draft, action.key, current);
+        }
       } else {
         const theirsLine = current.bom.find((l) => `${l.parentItemId}::${l.childItemId}` === action.key);
         const baseIdx = session.baseline.bom.findIndex((l) => `${l.parentItemId}::${l.childItemId}` === action.key);
@@ -427,7 +451,7 @@ function applyAction(draft: AppState, action: AppAction): void {
         }
       }
 
-      const result = masterSnapshot.preflightExport(session, current, draft.items, effectiveMbomLines(draft));
+      const result = masterSnapshot.preflightExport(session, current, draft.items, effectiveMbomLines(draft), draft.operations);
       draft.exportPreflight = result;
       break;
     }
@@ -437,6 +461,18 @@ function applyAction(draft: AppState, action: AppAction): void {
       if (!result || !session) throw new Error('先にエクスポート前確認（sync/preflight）を実行してください');
       if (result.status === 'conflict' || !result.mergedSnapshot) {
         throw new Error('競合が残っているためエクスポートできません。すべて解決してください（UC-SYNC-8）');
+      }
+      if (result.exportProblems && result.exportProblems.length > 0) {
+        throw new Error(`エクスポートできません:\n- ${result.exportProblems.join('\n- ')}`);
+      }
+      // PLMが触っておらず相手側が変えた品目の工順は、相手側を自動採用している。PLM側の工程もそれに合わせる。
+      // 作業区・得意先・仕入先は常に相手側の最新を採用するので、PLM側の控えも最新にする（PLM-EXT-20）
+      const current = draft.pendingCurrentSnapshot;
+      if (current) {
+        for (const itemId of masterSnapshot.routingItemsChangedByThem(session.baseline, current)) {
+          if (!session.touchedRoutingItemIds.has(itemId)) adoptTheirRouting(draft, itemId, current);
+        }
+        draft.passthrough = { workCenters: current.workCenters, customers: current.customers, suppliers: current.suppliers };
       }
       draft.syncEvents.push({
         eventId: nextId(draft, 'SYNC'),
@@ -449,6 +485,7 @@ function applyAction(draft: AppState, action: AppAction): void {
         baseline: result.mergedSnapshot,
         touchedItemIds: new Set(),
         touchedBomKeys: new Set(),
+        touchedRoutingItemIds: new Set(),
       };
       draft.exportPreflight = null;
       draft.pendingCurrentSnapshot = null;
@@ -472,9 +509,39 @@ function ensureSession(draft: AppState): SyncSession {
       baseline: { version: 1, items: [], bom: [], routingSteps: [], workCenters: [], customers: [], suppliers: [] },
       touchedItemIds: new Set(),
       touchedBomKeys: new Set(),
+      touchedRoutingItemIds: new Set(),
     };
   }
   return draft.syncSession;
+}
+
+// PLM側で工程を編集した品目を、操作の時点で記録する（3-wayマージの「PLMが触った」の判定に使う）
+// 現状確認の結果は、確認した時点の工程から作っている。その後に工程を編集したら結果は古くなるので捨て、
+// もう一度現状確認をしてもらう（古い結果のまま確定すると、編集した工程が書き出しから漏れる）
+function touchRouting(draft: AppState, itemId: string | undefined): void {
+  if (itemId === undefined) return;
+  ensureSession(draft).touchedRoutingItemIds.add(itemId);
+  draft.exportPreflight = null;
+  draft.pendingCurrentSnapshot = null;
+}
+
+// 相手側の工順をPLM側の工程へ取り込む。相手側に無くなった工程は終了し、その工程の資源は消す
+// （資源は版管理しないため。終了した工程を指していたM-BOM行は、投入工程が無効の警告に出る）。
+// 相手側の工順が新しい作業区を指していることがあるので、控えに無い作業区は足す
+// （控え全体を相手側の最新に置き換えるのは、エクスポート確定のとき）
+function adoptTheirRouting(draft: AppState, itemId: string, current: MasterSnapshot): void {
+  const ended = operation.adoptRoutingSteps(
+    draft.operations,
+    itemId,
+    current.routingSteps,
+    () => nextOperationId(draft),
+    draft.currentDay,
+  );
+  draft.operationResources = draft.operationResources.filter(
+    (r) => !ended.some((o) => o.itemId === r.itemId && o.opCode === r.opCode),
+  );
+  const known = new Set(draft.passthrough.workCenters.map((w) => w.workCenter));
+  draft.passthrough.workCenters.push(...current.workCenters.filter((w) => !known.has(w.workCenter)));
 }
 
 export { generateNewItemCode } from './item';

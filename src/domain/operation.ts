@@ -261,6 +261,71 @@ export function endOperation(operations: Operation[], operationId: string, effec
   return operation;
 }
 
+// 相手側（production_system_sim）の工順を、ある品目の工程へ取り込む（3-wayマージで相手側を採用したとき。PLM-EXT-20）。
+// 順序（stepNo）が一致する工程は、工程コード・名称・作業内容を保ったまま、作業区・標準時間・段取り時間を合わせる
+// （値が変わるときは版を上げる）。相手側に無くなった順序の工程は終了し、相手側にだけある順序は新しい工程として足す。
+// 連携での取り込みは日を進めずに行うため、「新しい版の開始日は旧版より後」の条件は課さない
+// （同じ日に版を上げた場合、旧版は開始日と終了日が同じ「一度も有効にならなかった版」として履歴に残る）。
+// 終了した工程の一覧を返す（呼び出し側が、その工程にぶら下がる資源を片付ける）。
+export function adoptRoutingSteps(
+  operations: Operation[],
+  itemId: string,
+  theirSteps: RoutingStep[],
+  newOperationId: () => string,
+  day: number,
+): Operation[] {
+  const current = currentOperations(operations, itemId);
+  const theirByStep = new Map(theirSteps.filter((s) => s.itemId === itemId).map((s) => [s.stepNo, s]));
+  const ended: Operation[] = [];
+
+  for (const op of current) {
+    const theirs = theirByStep.get(op.stepNo);
+    const at = Math.max(day, op.effectiveFromDay);
+    if (!theirs) {
+      op.effectiveToDay = at;
+      ended.push(op);
+      continue;
+    }
+    theirByStep.delete(op.stepNo);
+    if (op.workCenter === theirs.workCenter && op.stdTimeMin === theirs.stdTimeMin && op.setupMin === theirs.setupMin) continue;
+    op.effectiveToDay = at;
+    const revised: Operation = {
+      ...op,
+      operationId: newOperationId(),
+      workCenter: theirs.workCenter,
+      stdTimeMin: theirs.stdTimeMin,
+      version: op.version + 1,
+      effectiveFromDay: at,
+      effectiveToDay: undefined,
+    };
+    delete revised.changeId;
+    if (theirs.setupMin !== undefined) revised.setupMin = theirs.setupMin;
+    else delete revised.setupMin;
+    operations.push(revised);
+  }
+
+  const usedCodes = new Set(operations.filter((o) => o.itemId === itemId).map((o) => o.opCode));
+  for (const step of [...theirByStep.values()].sort((a, b) => a.stepNo - b.stepNo)) {
+    let n = step.stepNo;
+    while (usedCodes.has(`OP${n}`)) n += STEP_NO_INTERVAL;
+    usedCodes.add(`OP${n}`);
+    const added: Operation = {
+      operationId: newOperationId(),
+      itemId,
+      opCode: `OP${n}`,
+      stepNo: step.stepNo,
+      name: `工程${step.stepNo}`,
+      workCenter: step.workCenter,
+      stdTimeMin: step.stdTimeMin,
+      version: 1,
+      effectiveFromDay: day,
+    };
+    if (step.setupMin !== undefined) added.setupMin = step.setupMin;
+    operations.push(added);
+  }
+  return ended;
+}
+
 // 現在有効な工程の検査。書き出し前に使う（production_system_sim側の取り込みが拒否する内容を先に見つける）。
 export function checkOperations(operations: Operation[], items: PlmItem[], workCenters: WorkCenter[]): string[] {
   const problems: string[] = [];

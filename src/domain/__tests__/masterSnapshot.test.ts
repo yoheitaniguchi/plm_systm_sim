@@ -162,6 +162,7 @@ describe('preflightExport 3-way merge (7.4, 9.6, UC-SYNC-7/8)', () => {
       baseline,
       touchedItemIds: new Set<string>(),
       touchedBomKeys: new Set<string>(),
+      touchedRoutingItemIds: new Set<string>(),
     };
     const current = structuredClone(baseline);
     current.items[1].purchasePrice = 260; // production_system_sim側で直接編集
@@ -179,6 +180,7 @@ describe('preflightExport 3-way merge (7.4, 9.6, UC-SYNC-7/8)', () => {
       baseline,
       touchedItemIds: new Set<string>(['PT-400']),
       touchedBomKeys: new Set<string>(),
+      touchedRoutingItemIds: new Set<string>(),
     };
     const current = structuredClone(baseline);
     current.items[1].purchasePrice = 260; // 相手側も同じ品目を変更
@@ -198,6 +200,7 @@ describe('preflightExport 3-way merge (7.4, 9.6, UC-SYNC-7/8)', () => {
       baseline,
       touchedItemIds: new Set<string>(),
       touchedBomKeys: new Set<string>(),
+      touchedRoutingItemIds: new Set<string>(),
     };
     const result = preflightExport(session, structuredClone(baseline), importMasterSnapshot(baseline, 0).items, []);
     expect(result.status).toBe('clean');
@@ -211,6 +214,7 @@ describe('recordTouchedByChange', () => {
       baseline: baseSnapshot(),
       touchedItemIds: new Set<string>(),
       touchedBomKeys: new Set<string>(),
+      touchedRoutingItemIds: new Set<string>(),
     };
     const change: EngineeringChange = {
       changeId: 'ECO-1',

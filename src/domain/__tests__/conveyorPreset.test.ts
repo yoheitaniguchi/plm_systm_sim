@@ -2,10 +2,17 @@
 import { describe, expect, it } from 'vitest';
 import { currentEbomLines } from '../ebom';
 import { buildPurchaseBom, computeRolledUpCost, whereUsed } from '../impactAnalysis';
-import { assertSnapshotUsable, parseMasterSnapshot } from '../masterSnapshot';
-import { currentMbomLines } from '../mbom';
+import { assertSnapshotUsable, checkSnapshotRouting, parseMasterSnapshot } from '../masterSnapshot';
+import { checkInputOperations, currentMbomLines } from '../mbom';
+import { currentOperations } from '../operation';
 import { explodePlanningBom } from '../planningBom';
-import { bicycleMasterSnapshot, conveyorMasterSnapshot, woodenChairMasterSnapshot } from '../presets';
+import {
+  bicycleMasterSnapshot,
+  bicycleOperationNames,
+  conveyorMasterSnapshot,
+  conveyorOperationNames,
+  woodenChairMasterSnapshot,
+} from '../presets';
 import { createInitialState, reducer } from '../reducer';
 import type { AppState } from '../reducer';
 
@@ -38,9 +45,60 @@ describe('conveyor preset (PLM-EXT-15)', () => {
     }
   });
 
-  it('leaves routing steps and work centers empty (handled by the BOP/BOR extension)', () => {
-    expect(conveyorMasterSnapshot.routingSteps).toEqual([]);
-    expect(conveyorMasterSnapshot.workCenters).toEqual([]);
+  // 作業区と工順は、BOP/BORの拡張で本リポジトリが仮に定めた（PLM-EXT-20）
+  it('gives every MAKE item a routing whose work centers exist in the snapshot', () => {
+    const workCenterIds = new Set(conveyorMasterSnapshot.workCenters.map((w) => w.workCenter));
+    expect([...workCenterIds].sort()).toEqual(['WC-ASM', 'WC-CUT', 'WC-INS', 'WC-WELD', 'WC-WIRE']);
+    expect(conveyorMasterSnapshot.workCenters.every((w) => w.ratePerHour === 2400 && w.capacityMinPerDay === 480)).toBe(true);
+    expect(conveyorMasterSnapshot.routingSteps.every((s) => workCenterIds.has(s.workCenter))).toBe(true);
+    const routedItems = new Set(conveyorMasterSnapshot.routingSteps.map((s) => s.itemId));
+    const makeItems = conveyorMasterSnapshot.items.filter((i) => i.makeBuy === 'MAKE').map((i) => i.itemId);
+    expect([...routedItems].sort()).toEqual([...makeItems].sort());
+    expect(conveyorMasterSnapshot.routingSteps.map((s) => [s.itemId, s.stepNo, s.workCenter, s.stdTimeMin])).toEqual([
+      ['SA-810', 10, 'WC-CUT', 30],
+      ['SA-810', 20, 'WC-WELD', 60],
+      ['SA-820', 10, 'WC-ASM', 45],
+      ['SA-830', 10, 'WC-WIRE', 60],
+      ['FG-800', 10, 'WC-ASM', 90],
+      ['FG-800', 20, 'WC-INS', 30],
+    ]);
+  });
+
+  it('checkSnapshotRouting finds no problem in any bundled preset', () => {
+    for (const snapshot of [woodenChairMasterSnapshot, bicycleMasterSnapshot, conveyorMasterSnapshot]) {
+      expect(checkSnapshotRouting(snapshot)).toEqual([]);
+    }
+  });
+
+  it('gives the bicycle preset the same routing as production_system_sim, with a name for every operation', () => {
+    expect(bicycleMasterSnapshot.routingSteps.map((s) => [s.itemId, s.stepNo, s.workCenter, s.stdTimeMin])).toEqual([
+      ['SA-720', 10, 'WC-WELD', 15],
+      ['SA-710', 10, 'WC-BASM', 20],
+      ['FG-700', 10, 'WC-BASM', 40],
+      ['FG-700', 20, 'WC-BINS', 15],
+    ]);
+    expect(Object.keys(bicycleOperationNames).sort()).toEqual(
+      bicycleMasterSnapshot.routingSteps.map((s) => `${s.itemId}:OP${s.stepNo}`).sort(),
+    );
+  });
+
+  it('names the imported operations when the sample names are passed', () => {
+    const state = reducer(createInitialState(), {
+      type: 'sync/import',
+      json: conveyorMasterSnapshot,
+      importedAtDay: 0,
+      operationNames: conveyorOperationNames,
+    });
+    expect(currentOperations(state.operations).map((o) => `${o.itemId}:${o.opCode}:${o.name}`).sort()).toEqual([
+      'FG-800:OP10:総組立',
+      'FG-800:OP20:検査',
+      'SA-810:OP10:切断',
+      'SA-810:OP20:溶接',
+      'SA-820:OP10:組立',
+      'SA-830:OP10:配線',
+    ]);
+    // 名称を渡さない取り込み（貼り付けたJSON）は「工程{stepNo}」になる
+    expect(importConveyor().operations.every((o) => o.name === `工程${o.stepNo}`)).toBe(true);
   });
 
   it('imports via sync/import as a 3-level E-BOM with all items in 量産', () => {
@@ -70,13 +128,14 @@ describe('conveyor preset (PLM-EXT-15)', () => {
     ]);
   });
 
-  // コンベア装置は工順が空なので、投入工程は未割当になる（作業区と工順は後続のPRで足す）
-  it('converts to an M-BOM with the same structure and no input operation', () => {
+  // 投入工程は、親品目の最初の工程（OP10）が既定で入る（PLM-EXT-18）
+  it('converts to an M-BOM with the same structure and the first operation of each parent as input operation', () => {
     const state = importAndConvert();
     expect(state.lastError).toBeNull();
     const mbom = currentMbomLines(state.bomLines);
     expect(mbom).toHaveLength(10);
-    expect(mbom.every((l) => l.processStep === undefined)).toBe(true);
+    expect(mbom.every((l) => l.processStep === 'OP10')).toBe(true);
+    expect(checkInputOperations(mbom, state.operations)).toEqual([]);
   });
 
   it('sums the shared bolt across its three parents in the purchase BOM', () => {
