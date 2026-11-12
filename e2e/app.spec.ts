@@ -78,11 +78,11 @@ test.describe('free exploration', () => {
     await page.getByRole('button', { name: 'スキップ' }).click();
   });
 
-  test('navigates across all 9 domain tabs without runtime errors', async ({ page }) => {
+  test('navigates across all 10 domain tabs without runtime errors', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
-    for (const label of ['品目', 'E-BOM', 'M-BOM', '変更管理', '文書', '連携', '影響分析', '発注BOM', '計画BOM']) {
+    for (const label of ['品目', 'E-BOM', 'M-BOM', '工程（BOP）', '変更管理', '文書', '連携', '影響分析', '発注BOM', '計画BOM']) {
       await page.getByRole('button', { name: label, exact: true }).click();
       await expect(page.locator('main')).toContainText(/./);
     }
@@ -173,5 +173,75 @@ test.describe('accessibility', () => {
     const results = await new AxeBuilder({ page }).exclude('.onboarding-overlay').analyze();
     const serious = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
     expect(serious, JSON.stringify(serious, null, 2)).toEqual([]);
+  });
+});
+
+test.describe('operations / BOP (PLM-EXT-17・18)', () => {
+  test('adds, revises and reorders operations, and assigns the input operation of an M-BOM line', async ({ page }) => {
+    await page.goto('/');
+    // オンボーディングのステップ3でM-BOMへ変換しておく（投入工程の割り当て対象を作る）
+    const dialog = page.getByRole('dialog', { name: '木製イスのE-BOM構造ツアー' });
+    await dialog.getByRole('button', { name: '次へ' }).click();
+    await dialog.getByRole('button', { name: '次へ' }).click();
+    await dialog.getByRole('button', { name: 'M-BOMに変換' }).click();
+    await dialog.getByRole('button', { name: 'スキップ' }).click();
+
+    await page.getByRole('button', { name: 'M-BOM', exact: true }).click();
+    await expect(page.getByText('投入: OP10 組立').first()).toBeVisible();
+
+    await page.getByRole('button', { name: '工程（BOP）', exact: true }).click();
+    const opTable = page.getByRole('table').first();
+    await expect(opTable.getByRole('cell', { name: '組立', exact: true })).toBeVisible();
+    await expect(opTable.getByRole('cell', { name: '検査', exact: true })).toBeVisible();
+
+    // 追加：作業区は取り込み済みの一覧から選ぶ
+    await page.getByLabel('名称').fill('梱包');
+    await page.getByLabel('作業区（取り込み済みの作業区から選びます）').selectOption('WC-INS');
+    await page.getByLabel('標準時間（分）').fill('5');
+    await page.getByRole('button', { name: '木製イスの末尾に追加' }).click();
+    await expect(opTable.getByRole('cell', { name: 'OP30', exact: true })).toBeVisible();
+
+    // 同じ日は改訂・順序の入れ替えができない（新しい版の開始日は旧版より後）。理由と日を進めるボタンが出る
+    await expect(page.getByRole('button', { name: 'OP30 梱包を前へ' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'OP10 組立を改訂' })).toBeDisabled();
+    await expect(page.getByText('現在日D0では')).toBeVisible();
+
+    // 日を進めると入れ替えられ、旧版が履歴に残る
+    await page.getByRole('button', { name: '日を進める（D1へ）' }).click();
+    await expect(page.getByRole('status').filter({ hasText: '現在日' })).toContainText('D1');
+    await page.getByRole('button', { name: 'OP30 梱包を前へ' }).click();
+    await expect(page.getByRole('heading', { name: '履歴（旧版・終了した工程）' })).toBeVisible();
+    await expect(opTable.getByRole('row').nth(2)).toContainText('OP30');
+
+    // 改訂
+    await page.getByRole('button', { name: 'OP10 組立を改訂' }).click();
+    await page.getByLabel('標準時間（分）').first().fill('25');
+    await page.getByRole('button', { name: '改訂する' }).click();
+    await expect(opTable.getByRole('row').nth(1)).toContainText('25');
+
+    // 投入部品がある工程は終了できない
+    await expect(page.getByRole('button', { name: 'OP10 組立を終了' })).toBeDisabled();
+
+    // 投入部品の無い工程は、確認を挟んで終了できる（確認中の画面もアクセシビリティ検査する）
+    await page.getByRole('button', { name: 'OP30 梱包を終了' }).click();
+    await expect(page.getByText('元に戻せず、工程コードOP30は再利用されません')).toBeVisible();
+    const axe = await new AxeBuilder({ page }).analyze();
+    expect(axe.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
+    await page.getByRole('button', { name: 'OP30 梱包の終了を確定' }).click();
+    await expect(opTable.getByRole('cell', { name: 'OP30', exact: true })).toHaveCount(0);
+
+    // 投入工程の割り当て
+    await page.getByLabel('PT-500の投入工程').selectOption('OP20');
+    await expect(page.getByLabel('PT-500の投入工程')).toHaveValue('OP20');
+    await page.getByRole('button', { name: 'M-BOM', exact: true }).click();
+    await expect(page.getByText('投入: OP20 検査')).toBeVisible();
+  });
+
+  test('operations tab has no serious axe violations', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await page.getByRole('button', { name: '工程（BOP）', exact: true }).click();
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
   });
 });

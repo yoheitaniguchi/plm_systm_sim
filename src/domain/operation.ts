@@ -51,6 +51,16 @@ export function routingStepsFromOperations(operations: Operation[]): RoutingStep
   });
 }
 
+// 品目ごとの「最初の工程」（順序が最小の現在有効な工程）の工程コード。
+// M-BOM変換で、子品目の投入工程の既定値に使う（PLM-EXT-18）。
+export function firstOperationCodes(operations: Operation[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const o of currentOperations(operations)) {
+    if (!(o.itemId in result)) result[o.itemId] = o.opCode;
+  }
+  return result;
+}
+
 function assertWorkCenterImported(workCenters: WorkCenter[], workCenter: string): void {
   if (workCenters.length === 0) {
     throw new Error('作業区がありません。作業区は生産管理側のマスタです。MasterSnapshotを取り込んでください');
@@ -141,11 +151,16 @@ function findCurrentOperation(operations: Operation[], operationId: string): Ope
   return operation;
 }
 
+// その日に新しい版を作れるか（改訂・順序の入れ替えの条件）。画面がボタンを無効にする判定にも使う
+export function canReviseOn(operation: Operation, day: number): boolean {
+  return operation.effectiveToDay === undefined && Number.isInteger(day) && day > operation.effectiveFromDay;
+}
+
 function assertLaterThan(operation: Operation, effectiveFromDay: number): void {
   assertDay(effectiveFromDay, '有効開始日');
-  if (effectiveFromDay <= operation.effectiveFromDay) {
+  if (!canReviseOn(operation, effectiveFromDay)) {
     throw new Error(
-      `新しい版の有効開始日は旧版より後である必要があります（工程 ${operation.opCode} の現在の版は${operation.effectiveFromDay}日目から有効）`,
+      `新しい版の有効開始日は旧版より後である必要があります（工程 ${operation.opCode} の現在の版はD${operation.effectiveFromDay}から有効。日を進めてから操作してください）`,
     );
   }
 }

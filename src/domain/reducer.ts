@@ -94,13 +94,14 @@ export type AppAction =
   | { type: 'variant/resolveConfiguration'; baseItemId: string; selections: Record<string, string>; resolvedItemId: string; resolvedItemName: string }
   | {
       type: 'mbom/convert';
-      routingMap: Record<string, string>;
       effectiveFromDay: number;
       // 150%BOM（未解決のオプショングループ）を含む品目を変換する場合は必須（UC-VARIANT-3）。
       // オプショングループを持たない品目（例：自転車）ではundefinedのままでよい。
       configuration?: { baseItemId: string; selections: Record<string, string>; resolvedItemId: string };
     }
   | { type: 'mbom/setAlternateOverride'; alternateGroupId: string; childItemId: string }
+  // 投入工程の割り当て（opCodeを省くと未割当に戻す。PLM-EXT-18）
+  | { type: 'mbom/assignOperation'; bomLineId: string; opCode?: string }
   | { type: 'operation/add'; input: Omit<operation.NewOperationInput, 'operationId'> }
   | {
       type: 'operation/revise';
@@ -221,7 +222,12 @@ function applyAction(draft: AppState, action: AppAction): void {
       const sourceLines = action.configuration
         ? ebom.resolveConfiguration(ebomLines, { configId: 'preview', ...action.configuration })
         : ebomLines;
-      const converted = mbom.convertEbomToMbom(sourceLines, action.routingMap, action.effectiveFromDay);
+      // 投入工程の既定値は、親品目の最初の工程（PLM-EXT-18）
+      const converted = mbom.convertEbomToMbom(
+        sourceLines,
+        operation.firstOperationCodes(draft.operations),
+        action.effectiveFromDay,
+      );
       // バリアント解決を経た変換の場合、テンプレートを共有する複数の確定品目
       // （例：FG-100とFG-101）を同一セッションで変換してもbomLineIdが衝突しないようにする。
       const suffix = action.configuration ? `-${action.configuration.resolvedItemId}` : '';
@@ -243,6 +249,11 @@ function applyAction(draft: AppState, action: AppAction): void {
         [action.alternateGroupId]: action.childItemId,
       });
       draft.alternateOverrides[action.alternateGroupId] = action.childItemId;
+      break;
+    }
+
+    case 'mbom/assignOperation': {
+      mbom.assignInputOperation(draft.bomLines, draft.operations, action.bomLineId, action.opCode);
       break;
     }
 
@@ -277,6 +288,16 @@ function applyAction(draft: AppState, action: AppAction): void {
       break;
     }
     case 'operation/end': {
+      // 投入工程として参照されている工程は終了できない（先に割り当てを変える。PLM-EXT-18）
+      const target = draft.operations.find((o) => o.operationId === action.operationId);
+      if (target && target.effectiveToDay === undefined) {
+        const users = mbom.linesUsingOperation(draft.bomLines, target.itemId, target.opCode);
+        if (users.length > 0) {
+          throw new Error(
+            `工程 ${target.opCode}（${target.itemId}）は、M-BOM行 ${users.map((l) => `${l.parentItemId} → ${l.childItemId}`).join('、')} の投入工程のため終了できません。先に投入工程を変えてください`,
+          );
+        }
+      }
       operation.endOperation(draft.operations, action.operationId, action.effectiveToDay);
       break;
     }

@@ -7,6 +7,8 @@ interface BomTreeProps {
   lines: PlmBomLine[];
   items: PlmItem[];
   highlightItemId?: string;
+  // M-BOM用：行ごとの投入工程の表示（未割当ならnull、表示しない行はundefined。PLM-EXT-18）
+  inputOperationLabel?: (line: PlmBomLine) => string | null | undefined;
 }
 
 function itemLabel(itemId: string, items: PlmItem[]): string {
@@ -14,7 +16,7 @@ function itemLabel(itemId: string, items: PlmItem[]): string {
   return item ? `${item.name}（${itemId}）` : itemId;
 }
 
-export function BomTree({ rootItemId, lines, items, highlightItemId }: BomTreeProps) {
+export function BomTree({ rootItemId, lines, items, highlightItemId, inputOperationLabel }: BomTreeProps) {
   return (
     <ul className="bom-tree" role="tree">
       <BomNode
@@ -25,6 +27,7 @@ export function BomTree({ rootItemId, lines, items, highlightItemId }: BomTreePr
         depth={0}
         visited={new Set()}
         highlightItemId={highlightItemId}
+        inputOperationLabel={inputOperationLabel}
       />
     </ul>
   );
@@ -40,9 +43,23 @@ interface BomNodeProps {
   highlightItemId?: string;
   optionCode?: string;
   isAlternate?: boolean;
+  inputOperationLabel?: BomTreeProps['inputOperationLabel'];
+  inputOperation?: string | null;
 }
 
-function BomNode({ itemId, qty, lines, items, depth, visited, highlightItemId, optionCode, isAlternate }: BomNodeProps) {
+function BomNode({
+  itemId,
+  qty,
+  lines,
+  items,
+  depth,
+  visited,
+  highlightItemId,
+  optionCode,
+  isAlternate,
+  inputOperationLabel,
+  inputOperation,
+}: BomNodeProps) {
   if (depth > MAX_BOM_DEPTH || visited.has(itemId)) {
     return (
       <li role="treeitem">
@@ -64,6 +81,8 @@ function BomNode({ itemId, qty, lines, items, depth, visited, highlightItemId, o
         {isGroup && <span className="badge badge--ebom-only">E-BOM限定</span>}
         {optionCode && <span className="badge badge--option">オプション: {optionCode}</span>}
         {isAlternate && <span className="badge badge--alternate">代替</span>}
+        {inputOperation && <span className="badge badge--option">投入: {inputOperation}</span>}
+        {inputOperation === null && <span className="badge badge--warning">投入工程 未割当</span>}
       </span>
       {children.length > 0 && (
         <ul>
@@ -79,6 +98,8 @@ function BomNode({ itemId, qty, lines, items, depth, visited, highlightItemId, o
               highlightItemId={highlightItemId}
               optionCode={line.optionCode}
               isAlternate={Boolean(line.alternateGroupId)}
+              inputOperationLabel={inputOperationLabel}
+              inputOperation={inputOperationLabel?.(line)}
             />
           ))}
         </ul>

@@ -427,3 +427,11 @@ button {
     font-size: 0.8rem;
   }
 }
+
+/* 現在日と「次の日へ進む」（PLM-EXT-18） */
+.app-header__clock {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}

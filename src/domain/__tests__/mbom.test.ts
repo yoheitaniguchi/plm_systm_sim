@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { addEbomLine } from '../ebom';
-import { checkMbomStaleness, convertEbomToMbom, resolveAlternates } from '../mbom';
+import { checkInputOperations, checkMbomStaleness, convertEbomToMbom, resolveAlternates } from '../mbom';
+import { firstOperationCodes } from '../operation';
+import { createWoodenChairDemoState } from '../presets';
 import type { PlmBomLine } from '../types';
 
 function buildWoodenChairEbom(): PlmBomLine[] {
@@ -27,13 +29,14 @@ function buildWoodenChairEbom(): PlmBomLine[] {
   return bomLines;
 }
 
-const routingMap = { 'SA-200': 'WC-CUT', 'PT-400': 'WC-ASM', 'PT-500': 'WC-ASM' };
+// 親品目 → 既定の投入工程（親品目の最初の工程）。木製イス＝OP10 組立、座面ASSY＝OP10 切断（PLM-EXT-18）
+const defaultInputOperation = firstOperationCodes(createWoodenChairDemoState().operations);
 
 describe('mbom domain', () => {
   // UC-MBOM-1 / 4.1
   it('flattens the 脚部ユニット group away, re-parenting its children directly under FG-100', () => {
     const ebom = buildWoodenChairEbom();
-    const mbom = convertEbomToMbom(ebom, routingMap, 5);
+    const mbom = convertEbomToMbom(ebom, defaultInputOperation, 5);
 
     // グループ自体（FG-100 -> EU-450）はM-BOMに出ない
     expect(mbom.some((l) => l.childItemId === 'EU-450')).toBe(false);
@@ -47,18 +50,39 @@ describe('mbom domain', () => {
     expect(mbom.every((l) => l.bomType === 'M' && l.effectiveFromDay === 5)).toBe(true);
   });
 
-  // UC-MBOM-2
-  it('carries the routing process step (WC-CUT for SA-200) onto the M-BOM line', () => {
+  // UC-MBOM-2（design.md PLM-EXT-18で読み替え）：M-BOM行は「親品目のどの工程で投入するか」を持つ。
+  // 座面ASSYの切断工程（WC-CUT）に対応づくのは、座面ASSYを親とする行（SA-200 → RM-300）
+  it('sets the input operation of each M-BOM line to the first operation of its parent item', () => {
+    const operations = createWoodenChairDemoState().operations;
     const ebom = buildWoodenChairEbom();
-    const mbom = convertEbomToMbom(ebom, routingMap, 5);
-    const seatAssyLine = mbom.find((l) => l.childItemId === 'SA-200');
-    expect(seatAssyLine?.processStep).toBe('WC-CUT');
+    const mbom = convertEbomToMbom(ebom, defaultInputOperation, 5);
+
+    const boardLine = mbom.find((l) => l.parentItemId === 'SA-200' && l.childItemId === 'RM-300');
+    expect(boardLine?.processStep).toBe('OP10');
+    expect(operations.find((o) => o.itemId === 'SA-200' && o.opCode === boardLine?.processStep)).toMatchObject({
+      name: '切断',
+      workCenter: 'WC-CUT',
+    });
+
+    // 木製イスを親とする行（座面ASSY、フラット化された脚・ネジ）は、木製イスのOP10 組立で投入する
+    for (const childItemId of ['SA-200', 'PT-400', 'PT-500']) {
+      const line = mbom.find((l) => l.parentItemId === 'FG-100' && l.childItemId === childItemId);
+      expect(line?.processStep).toBe('OP10');
+    }
+    expect(operations.find((o) => o.itemId === 'FG-100' && o.opCode === 'OP10')).toMatchObject({ name: '組立', workCenter: 'WC-ASM' });
+    expect(checkInputOperations(mbom, operations)).toEqual([]);
+  });
+
+  it('leaves the input operation unassigned when the parent item has no operations', () => {
+    const mbom = convertEbomToMbom(buildWoodenChairEbom(), {}, 5);
+    expect(mbom.every((l) => l.processStep === undefined)).toBe(true);
+    expect(checkInputOperations(mbom, []).every((i) => i.kind === '未割当')).toBe(true);
   });
 
   // UC-MBOM-3
   it('reports E-BOM lines that have not yet been reflected into the M-BOM (staleness)', () => {
     const ebom = buildWoodenChairEbom();
-    const mbom = convertEbomToMbom(ebom, routingMap, 5);
+    const mbom = convertEbomToMbom(ebom, defaultInputOperation, 5);
     expect(checkMbomStaleness(ebom, mbom)).toHaveLength(0);
 
     // E-BOM側だけを改訂（M-BOM再変換はまだ）
@@ -83,7 +107,7 @@ describe('mbom domain', () => {
       optionGroupId: 'OG-SEAT-FINISH',
       optionCode: '布張り',
     });
-    expect(() => convertEbomToMbom(ebom, routingMap, 5)).toThrow();
+    expect(() => convertEbomToMbom(ebom, defaultInputOperation, 5)).toThrow();
   });
 });
 
