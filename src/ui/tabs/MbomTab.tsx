@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { currentEbomLines } from '../../domain/ebom';
 import { checkMbomStaleness, currentMbomLines } from '../../domain/mbom';
+import { currentOperations } from '../../domain/operation';
 import { effectiveMbomLines } from '../../domain/reducer';
 import type { AppAction, AppState } from '../../domain/reducer';
 import { BomTree } from '../components/BomTree';
@@ -47,7 +48,7 @@ export function MbomTab({ state, dispatch }: MbomTabProps) {
         className="form-grid"
         onSubmit={(e) => {
           e.preventDefault();
-          const routingMap = Object.fromEntries(state.passthrough.routingSteps.map((s) => [s.itemId, s.workCenter]));
+          const routingMap = Object.fromEntries(currentOperations(state.operations).map((o) => [o.itemId, o.workCenter]));
           const config = state.configurations.find((c) => c.configId === configId);
           dispatch({
             type: 'mbom/convert',

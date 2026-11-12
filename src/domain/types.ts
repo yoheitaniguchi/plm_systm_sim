@@ -26,6 +26,7 @@ export interface RoutingStep {
   stepNo: number;
   workCenter: string;
   stdTimeMin: number;
+  setupMin?: number; // 段取り時間（分）。production_system_sim側の任意項目。PLMでは編集せず、取り込んだ値を保って書き出す
 }
 
 export interface WorkCenter {
@@ -56,10 +57,9 @@ export interface MasterSnapshot {
   suppliers: Supplier[];
 }
 
-export type Passthrough = Pick<
-  MasterSnapshot,
-  'routingSteps' | 'workCenters' | 'customers' | 'suppliers'
->;
+// PLMが編集せず、取り込んだものをそのまま書き出すマスタ。
+// 工順（routingSteps）は工程（Operation）としてPLMが持つため、ここには含めない（PLM-EXT-17）。
+export type Passthrough = Pick<MasterSnapshot, 'workCenters' | 'customers' | 'suppliers'>;
 
 // ---------- PLM独自の拡張 ----------
 export type ItemLifecycleStatus =
@@ -98,6 +98,26 @@ export interface PlmBomLine extends BomLine {
   alternateGroupId?: string; // このBOM行が属する代替部品グループ（4.5）
   alternatePriority?: number; // 代替部品グループ内の優先順位（小さいほど優先）
   approvalStatus?: '承認済' | '評価中' | '却下'; // 代替部品として選択可能かどうか（承認済のみ選択可）
+}
+
+// ---------- 工程（BOP、PLM-EXT-17） ----------
+// 内製品目ごとの工程。BOM行と同じ「版数＋有効日」で改訂の履歴を残す。
+// production_system_simへは、現在有効な工程のitemId/stepNo/workCenter/stdTimeMin/setupMinだけを
+// routingStepsとして書き出す。opCode・name・descriptionはPLM独自で、書き出さない。
+export interface Operation {
+  operationId: string; // 内部ID。版ごとに別
+  itemId: string; // 工程を持つ内製品目
+  opCode: string; // 工程コード。品目内で一意で、版・順序が変わっても不変（参照のキー）
+  stepNo: number; // 順序。正の整数で、現在有効な工程の中で品目内一意（RoutingStep.stepNo）
+  name: string;
+  description?: string;
+  workCenter: string; // 取り込み済みの作業区（passthrough.workCenters）のいずれか
+  stdTimeMin: number;
+  setupMin?: number;
+  version: number;
+  effectiveFromDay: number;
+  effectiveToDay?: number;
+  changeId?: string; // 由来のECO（任意）
 }
 
 // バリアント構成の選択結果（4.4）。1つの構成が1つの具体的な品目に対応する。

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertSnapshotUsable,
   buildUpdatedMasterSnapshot,
   checkReferentialIntegrityBeforeExport,
   detectBomCycles,
@@ -9,7 +10,8 @@ import {
   preflightExport,
   recordTouchedByChange,
 } from '../masterSnapshot';
-import type { EngineeringChange, MasterSnapshot, PlmBomLine, PlmItem, Passthrough } from '../types';
+import { operationsFromRoutingSteps } from '../operation';
+import type { EngineeringChange, MasterSnapshot, Operation, PlmBomLine, PlmItem, Passthrough } from '../types';
 
 function baseSnapshot(): MasterSnapshot {
   return {
@@ -37,6 +39,15 @@ describe('parseMasterSnapshot / assertSnapshotUsable', () => {
     expect(() => parseMasterSnapshot(bad)).toThrow();
   });
 
+  it('keeps setupMin on routing steps and rejects malformed routing steps (PLM-EXT-17)', () => {
+    const withSetup = { ...baseSnapshot(), routingSteps: [{ itemId: 'FG-100', stepNo: 10, workCenter: 'WC-ASM', stdTimeMin: 30, setupMin: 5 }] };
+    expect(parseMasterSnapshot(withSetup).routingSteps[0].setupMin).toBe(5);
+    const badStep = { ...baseSnapshot(), routingSteps: [{ itemId: 'FG-100', stepNo: 0, workCenter: 'WC-ASM', stdTimeMin: 30 }] };
+    expect(() => parseMasterSnapshot(badStep)).toThrow('stepNo');
+    const dup = { ...baseSnapshot(), routingSteps: [baseSnapshot().routingSteps[0], baseSnapshot().routingSteps[0]] };
+    expect(() => assertSnapshotUsable(parseMasterSnapshot(dup))).toThrow('重複');
+  });
+
   it('detects a circular BOM across the whole snapshot (second line of defense)', () => {
     const bom = [
       { parentItemId: 'A', childItemId: 'B', qtyPer: 1 },
@@ -53,6 +64,21 @@ describe('importMasterSnapshot (7.3, UC-SYNC-1)', () => {
     expect(result.items.every((i) => i.lifecycleStatus === '量産')).toBe(true);
     expect(result.bomLines.every((l) => l.bomType === 'E' && l.version === 1)).toBe(true);
     expect(result.passthrough.workCenters).toHaveLength(1);
+    // 工順は工程として取り込む（PLM-EXT-17）。passthroughには含めない
+    expect(result.passthrough).not.toHaveProperty('routingSteps');
+    expect(result.operations).toEqual([
+      {
+        operationId: 'OPN-IMPORT-0',
+        itemId: 'FG-100',
+        opCode: 'OP1',
+        stepNo: 1,
+        name: '工程1',
+        workCenter: 'WC-ASM',
+        stdTimeMin: 30,
+        version: 1,
+        effectiveFromDay: 0,
+      },
+    ]);
     expect(result.session.baseline).toEqual(baseSnapshot());
     expect(result.session.touchedItemIds.size).toBe(0);
   });
@@ -60,11 +86,13 @@ describe('importMasterSnapshot (7.3, UC-SYNC-1)', () => {
 
 describe('checkReferentialIntegrityBeforeExport / buildUpdatedMasterSnapshot (UC-SYNC-3, UC-SYNC-6)', () => {
   const passthrough: Passthrough = {
-    routingSteps: [{ itemId: 'FG-100', stepNo: 1, workCenter: 'WC-ASM', stdTimeMin: 30 }],
     workCenters: [{ workCenter: 'WC-ASM', ratePerHour: 2400, capacityMinPerDay: 480 }],
     customers: [],
     suppliers: [],
   };
+  const operations: Operation[] = operationsFromRoutingSteps([
+    { itemId: 'FG-100', stepNo: 1, workCenter: 'WC-ASM', stdTimeMin: 30 },
+  ]);
   const items: PlmItem[] = [{ itemId: 'FG-100', name: '木製イス', makeBuy: 'MAKE', leadTimeDays: 2, lifecycleStatus: '量産' }];
   const mbomLines: PlmBomLine[] = [];
 
@@ -74,7 +102,7 @@ describe('checkReferentialIntegrityBeforeExport / buildUpdatedMasterSnapshot (UC
       ...items,
       { itemId: 'RM-301', name: 'クッション材', makeBuy: 'BUY', leadTimeDays: 4, lifecycleStatus: '設計確定' },
     ];
-    const problems = checkReferentialIntegrityBeforeExport(withUnsuppliedBuy, mbomLines, passthrough);
+    const problems = checkReferentialIntegrityBeforeExport(withUnsuppliedBuy, mbomLines, passthrough, operations);
     expect(problems.some((p) => p.includes('RM-301'))).toBe(true);
   });
 
@@ -91,7 +119,7 @@ describe('checkReferentialIntegrityBeforeExport / buildUpdatedMasterSnapshot (UC
       impactedBomLineIds: [],
       approvals: [],
     };
-    expect(() => buildUpdatedMasterSnapshot(change, items, mbomLines, passthrough)).toThrow();
+    expect(() => buildUpdatedMasterSnapshot(change, items, mbomLines, passthrough, operations)).toThrow();
   });
 
   it('builds an export snapshot for a closed ECO with effectiveFromDay set', () => {
@@ -106,8 +134,22 @@ describe('checkReferentialIntegrityBeforeExport / buildUpdatedMasterSnapshot (UC
       impactedBomLineIds: [],
       approvals: [],
     };
-    const snapshot = buildUpdatedMasterSnapshot(change, items, mbomLines, passthrough);
+    const snapshot = buildUpdatedMasterSnapshot(change, items, mbomLines, passthrough, operations);
     expect(snapshot.items).toEqual([{ itemId: 'FG-100', name: '木製イス', makeBuy: 'MAKE', leadTimeDays: 2 }]);
+    // 工順は現在有効な工程から作る（PLM-EXT-17）
+    expect(snapshot.routingSteps).toEqual([{ itemId: 'FG-100', stepNo: 1, workCenter: 'WC-ASM', stdTimeMin: 30 }]);
+  });
+
+  it('flags operations that point at a missing item or work center, and duplicated step numbers', () => {
+    const broken: Operation[] = [
+      ...operations,
+      { ...operations[0], operationId: 'X-1', opCode: 'OP9', workCenter: 'WC-NONE' },
+      { ...operations[0], operationId: 'X-2', opCode: 'OP8', itemId: 'SA-999', stepNo: 5 },
+    ];
+    const problems = checkReferentialIntegrityBeforeExport(items, mbomLines, passthrough, broken);
+    expect(problems.some((p) => p.includes('WC-NONE'))).toBe(true);
+    expect(problems.some((p) => p.includes('SA-999'))).toBe(true);
+    expect(problems.some((p) => p.includes('順序 1 が重複'))).toBe(true);
   });
 });
 
