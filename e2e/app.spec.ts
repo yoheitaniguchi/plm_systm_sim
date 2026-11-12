@@ -78,11 +78,11 @@ test.describe('free exploration', () => {
     await page.getByRole('button', { name: 'スキップ' }).click();
   });
 
-  test('navigates across all 10 domain tabs without runtime errors', async ({ page }) => {
+  test('navigates across all 11 domain tabs without runtime errors', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
-    for (const label of ['品目', 'E-BOM', 'M-BOM', '工程（BOP）', '変更管理', '文書', '連携', '影響分析', '発注BOM', '計画BOM']) {
+    for (const label of ['品目', 'E-BOM', 'M-BOM', '工程（BOP）', '資源（BOR）', '変更管理', '文書', '連携', '影響分析', '発注BOM', '計画BOM']) {
       await page.getByRole('button', { name: label, exact: true }).click();
       await expect(page.locator('main')).toContainText(/./);
     }
@@ -243,5 +243,47 @@ test.describe('operations / BOP (PLM-EXT-17・18)', () => {
     await page.getByRole('button', { name: '工程（BOP）', exact: true }).click();
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
+  });
+});
+
+test.describe('resources / BOR (PLM-EXT-19)', () => {
+  test('adds resources to operations, lists them across operations, and removes one after confirmation', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await page.getByRole('button', { name: '資源（BOR）', exact: true }).click();
+    await expect(page.getByText('MasterSnapshot に書き出されません')).toBeVisible();
+
+    const form = page.getByRole('form', { name: '資源を追加' });
+    await form.getByRole('combobox').nth(0).selectOption({ label: '木製イス（FG-100） OP10 組立' });
+    await form.getByRole('combobox').nth(1).selectOption('治具・工具');
+    await page.getByLabel('コード').fill('TL-DRV');
+    await page.getByLabel('名称').fill('電動ドライバー');
+    await form.getByRole('spinbutton').fill('2');
+    await page.getByRole('button', { name: '資源を追加' }).click();
+
+    await form.getByRole('combobox').nth(0).selectOption({ label: '座面ASSY（SA-200） OP10 切断' });
+    await page.getByLabel('コード').fill('TL-DRV');
+    await page.getByLabel('名称').fill('電動ドライバー');
+    await page.getByRole('button', { name: '資源を追加' }).click();
+
+    const usage = page.getByRole('table', { name: '資源の横断一覧（どの資源がどの工程で要るか）' });
+    await expect(usage.getByRole('row')).toHaveCount(2);
+    await expect(usage).toContainText('木製イス（FG-100） OP10 組立（必要数 2）');
+    await expect(usage).toContainText('座面ASSY（SA-200） OP10 切断（必要数 2）');
+
+    // 資源がある工程は終了できない（工程タブ）
+    await page.getByRole('button', { name: '工程（BOP）', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'OP10 組立を終了' })).toBeDisabled();
+    await page.getByRole('button', { name: '資源（BOR）', exact: true }).click();
+    // タブを切り替えても資源は残る
+    const list = page.getByRole('table', { name: '工程ごとの資源' });
+    await expect(list.getByRole('row')).toHaveCount(3);
+
+    await page.getByRole('button', { name: 'OP10の治具・工具 TL-DRVを削除' }).first().click();
+    await expect(page.getByText('履歴は残りません')).toBeVisible();
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
+    await page.getByRole('button', { name: 'TL-DRVの削除を確定' }).click();
+    await expect(list.getByRole('row')).toHaveCount(2);
   });
 });

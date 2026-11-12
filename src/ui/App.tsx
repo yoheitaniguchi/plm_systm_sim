@@ -12,15 +12,17 @@ import { MbomTab } from './tabs/MbomTab';
 import { OperationTab } from './tabs/OperationTab';
 import { PlanningBomTab } from './tabs/PlanningBomTab';
 import { PurchaseBomTab } from './tabs/PurchaseBomTab';
+import { ResourceTab } from './tabs/ResourceTab';
 import { SyncTab } from './tabs/SyncTab';
 
-type TabKey = 'item' | 'ebom' | 'mbom' | 'operation' | 'change' | 'document' | 'sync' | 'impact' | 'purchase' | 'planning';
+type TabKey = 'item' | 'ebom' | 'mbom' | 'operation' | 'resource' | 'change' | 'document' | 'sync' | 'impact' | 'purchase' | 'planning';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'item', label: '品目' },
   { key: 'ebom', label: 'E-BOM' },
   { key: 'mbom', label: 'M-BOM' },
   { key: 'operation', label: '工程（BOP）' },
+  { key: 'resource', label: '資源（BOR）' },
   { key: 'change', label: '変更管理' },
   { key: 'document', label: '文書' },
   { key: 'sync', label: '連携' },
@@ -78,6 +80,7 @@ export function App() {
         {activeTab === 'ebom' && <EbomTab state={state} dispatch={dispatch} />}
         {activeTab === 'mbom' && <MbomTab state={state} dispatch={dispatch} />}
         {activeTab === 'operation' && <OperationTab state={state} dispatch={dispatch} />}
+        {activeTab === 'resource' && <ResourceTab state={state} dispatch={dispatch} />}
         {activeTab === 'change' && (
           <ChangeManagementTab
             state={state}
