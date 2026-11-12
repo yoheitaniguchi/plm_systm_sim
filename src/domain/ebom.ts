@@ -76,8 +76,12 @@ export function reviseEbomLine(
 ): PlmBomLine {
   const oldLine = bomLines.find((l) => l.bomLineId === bomLineId);
   if (!oldLine) throw new Error(`E-BOM行 ${bomLineId} が見つかりません`);
+  if (oldLine.bomType !== 'E') throw new Error(`${bomLineId} はE-BOM行ではありません`);
   if (oldLine.effectiveToDay !== undefined) {
     throw new Error(`E-BOM行 ${bomLineId} は既に旧版化されています`);
+  }
+  if (!Number.isInteger(effectiveFromDay) || effectiveFromDay < 0) {
+    throw new Error('有効開始日は0以上の整数（日数）である必要があります');
   }
   if (effectiveFromDay <= oldLine.effectiveFromDay) {
     throw new Error('新しい版の有効開始日は旧版より後である必要があります');
@@ -120,6 +124,27 @@ function assertChangeDay(line: PlmBomLine, day: number): void {
   }
 }
 
+// 「親 → E-BOM限定グループ」の行は終了・置換できない（PLM-EXT-21）。グループの子行が残ったまま親への
+// つながりが無くなると、M-BOMへの変換がグループの実親を見つけられなくなるため。
+function assertNotLineToGroup(line: PlmBomLine, bomLines: PlmBomLine[]): void {
+  if (isEbomOnlyGroup(line.childItemId, currentEbomLines(bomLines))) {
+    throw new Error(
+      `E-BOM行 ${line.bomLineId} はE-BOM限定グループ ${line.childItemId} への行のため、終了・置換できません`,
+    );
+  }
+}
+
+// E-BOM限定グループを畳んだ後の親（グループの下の行なら、グループの実親）。循環に備えて段数を限る
+function flattenedParent(parentItemId: string, currentLines: PlmBomLine[]): string {
+  let parent = parentItemId;
+  for (let depth = 0; depth < 20 && isEbomOnlyGroup(parent, currentLines); depth++) {
+    const toGroup = currentLines.find((l) => l.childItemId === parent);
+    if (!toGroup) break;
+    parent = toGroup.parentItemId;
+  }
+  return parent;
+}
+
 // E-BOM行の終了（PLM-EXT-21）。後継の行を作らずに閉じる。行は削除せず履歴に残す。
 export function endEbomLine(
   bomLines: PlmBomLine[],
@@ -130,6 +155,13 @@ export function endEbomLine(
   const line = bomLines.find((l) => l.bomLineId === bomLineId);
   if (!line) throw new Error(`E-BOM行 ${bomLineId} が見つかりません`);
   assertChangeDay(line, effectiveFromDay);
+  assertNotLineToGroup(line, bomLines);
+  const current = currentEbomLines(bomLines);
+  if (line.isEbomOnly && current.filter((l) => l.parentItemId === line.parentItemId && l.isEbomOnly).length === 1) {
+    throw new Error(
+      `E-BOM限定グループ ${line.parentItemId} の最後の子は終了できません（グループを空にする操作には対応していません）`,
+    );
+  }
   line.effectiveToDay = effectiveFromDay;
   if (changeId !== undefined) line.endChangeId = changeId;
   return line;
@@ -148,14 +180,23 @@ export function replaceEbomChild(
   const oldLine = bomLines.find((l) => l.bomLineId === bomLineId);
   if (!oldLine) throw new Error(`E-BOM行 ${bomLineId} が見つかりません`);
   assertChangeDay(oldLine, effectiveFromDay);
+  assertNotLineToGroup(oldLine, bomLines);
+  if (oldLine.alternateGroupId !== undefined) {
+    throw new Error(
+      `E-BOM行 ${bomLineId} は代替部品グループ ${oldLine.alternateGroupId} の行のため置換できません（置換すると、未評価の品目が承認済みの代替部品になってしまいます）`,
+    );
+  }
   if (newChildItemId === oldLine.childItemId) {
     throw new Error('置換後の子品目が今と同じです');
   }
-  const duplicate = bomLines.some(
+  // E-BOM限定グループの下の行は、M-BOMへ変換するとグループの実親の行になる。変換後に同じ親子の行が
+  // 2つできないよう、グループを畳んだ後の親で比べる
+  const current = currentEbomLines(bomLines);
+  const flatParent = (l: PlmBomLine) => flattenedParent(l.parentItemId, current);
+  const duplicate = current.some(
     (l) =>
-      l.bomType === 'E' &&
-      l.effectiveToDay === undefined &&
-      l.parentItemId === oldLine.parentItemId &&
+      l !== oldLine &&
+      flatParent(l) === flatParent(oldLine) &&
       l.childItemId === newChildItemId &&
       l.optionGroupId === oldLine.optionGroupId &&
       l.optionCode === oldLine.optionCode,

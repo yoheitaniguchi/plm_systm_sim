@@ -283,6 +283,14 @@ function applyAction(draft: AppState, action: AppAction): void {
         scope,
         action.effectiveFromDay,
       );
+      // 再変換で代替部品の行が無くなった場合、その行を選んでいた切り替えは外す（既定の選択に戻る）。
+      // 残したままだと、実効M-BOMの解決が「承認済ではない」と例外になる（PLM-EXT-21）
+      const approved = mbom.currentMbomLines(draft.bomLines).filter((l) => l.alternateGroupId && l.approvalStatus === '承認済');
+      for (const [groupId, childItemId] of Object.entries(draft.alternateOverrides)) {
+        if (!approved.some((l) => l.alternateGroupId === groupId && l.childItemId === childItemId)) {
+          delete draft.alternateOverrides[groupId];
+        }
+      }
       break;
     }
     case 'mbom/setAlternateOverride': {

@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { addEbomLine, currentEbomLines, endEbomLine, replaceEbomChild, reviseEbomLine } from '../ebom';
 import { isEffectiveAsOf } from '../impactAnalysis';
 import { stripPlmOnlyBomFields } from '../masterSnapshot';
-import { currentMbomLines } from '../mbom';
+import { checkMbomStaleness, currentMbomLines } from '../mbom';
 import { conveyorMasterSnapshot, createWoodenChairDemoState } from '../presets';
-import { createInitialState, reducer } from '../reducer';
+import { createInitialState, effectiveMbomLines, reducer } from '../reducer';
 import type { AppState } from '../reducer';
 import type { PlmBomLine } from '../types';
 
@@ -187,5 +187,102 @@ describe('reducer: ebom/endLine and ebom/replaceChild (PLM-EXT-21)', () => {
     state = reducer(state, { type: 'ebom/reviseLine', bomLineId: line.bomLineId, patch: { qtyPer: line.qtyPer + 1 }, effectiveFromDay: 2, changeId });
     expect(state.lastError).toBeNull();
     expect(currentEbomLines(state.bomLines).find((l) => l.parentItemId === line.parentItemId && l.childItemId === line.childItemId)?.changeId).toBe(changeId);
+  });
+});
+
+// ロジックレビューで見つかった経路（PLM-EXT-21）：E-BOM限定グループ・代替部品・未反映の警告
+describe('end / replace around E-BOM-only groups, alternates and staleness (wooden chair)', () => {
+  // 木製イス：E-1 FG-100→SA-200、E-4 FG-100→EU-450（脚部ユニット）、E-5/6/7 EU-450→PT-400/PT-500/PT-401
+  // （E-5・E-7は代替部品グループ AG-LEG）
+  const config = { baseItemId: 'FG-100', selections: { 'OG-SEAT-FINISH': '無垢材' }, resolvedItemId: 'FG-100' };
+  function chair(): AppState {
+    let state = reducer(createWoodenChairDemoState(), { type: 'mbom/convert', effectiveFromDay: 0, configuration: config });
+    expect(state.lastError).toBeNull();
+    state = reducer(state, { type: 'ui/advanceDay', byDays: 3 });
+    return state;
+  }
+  const staleness = (state: AppState) => checkMbomStaleness(state.bomLines, state.bomLines);
+
+  it('refuses to end or replace the line to an E-BOM-only group', () => {
+    let state = chair();
+    const before = state.bomLines;
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-4', effectiveFromDay: 3 });
+    expect(state.lastError).toMatch(/E-BOM限定グループ EU-450 への行/);
+    state = reducer(state, { type: 'ebom/replaceChild', bomLineId: 'E-4', newChildItemId: 'PT-500', effectiveFromDay: 3 });
+    expect(state.lastError).toMatch(/E-BOM限定グループ EU-450 への行/);
+    expect(state.bomLines).toEqual(before);
+  });
+
+  it('refuses to end the last child of an E-BOM-only group, so the group never turns into an ordinary item', () => {
+    let state = chair();
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-5', effectiveFromDay: 3 });
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-6', effectiveFromDay: 3 });
+    expect(state.lastError).toBeNull();
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-7', effectiveFromDay: 3 });
+    expect(state.lastError).toMatch(/最後の子は終了できません/);
+    // 変換は壊れず、グループはM-BOMに出ない
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 3, configuration: config });
+    expect(state.lastError).toBeNull();
+    expect(currentMbomLines(state.bomLines).some((l) => l.childItemId === 'EU-450' || l.parentItemId === 'EU-450')).toBe(false);
+  });
+
+  it('refuses to replace a line of an alternate group', () => {
+    let state = chair();
+    state = reducer(state, { type: 'ebom/replaceChild', bomLineId: 'E-5', newChildItemId: 'PT-500', effectiveFromDay: 3 });
+    expect(state.lastError).toMatch(/代替部品グループ AG-LEG/);
+  });
+
+  it('refuses a replacement that would duplicate a parent-child pair after the group is flattened', () => {
+    // E-1（FG-100→SA-200）をPT-500に置き換えると、変換後は FG-100→PT-500 が脚部ユニットの分と重なる
+    let state = chair();
+    state = reducer(state, { type: 'ebom/replaceChild', bomLineId: 'E-1', newChildItemId: 'PT-500', effectiveFromDay: 3 });
+    expect(state.lastError).toMatch(/既に PT-500 を子に持っています/);
+  });
+
+  it('warns that the M-BOM is stale after a line is ended, until re-conversion', () => {
+    let state = chair();
+    expect(staleness(state)).toEqual([]);
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-6', effectiveFromDay: 3 });
+    expect(state.lastError).toBeNull();
+    expect(staleness(state)).toHaveLength(1);
+    expect(staleness(state)[0]).toMatch(/PT-500.*元のE-BOM行は終了/);
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 3, configuration: config });
+    expect(staleness(state)).toEqual([]);
+    expect(currentMbomLines(state.bomLines).some((l) => l.childItemId === 'PT-500')).toBe(false);
+  });
+
+  it('drops an alternate override whose line disappears on re-conversion, so the effective M-BOM still resolves', () => {
+    let state = chair();
+    state = reducer(state, { type: 'mbom/setAlternateOverride', alternateGroupId: 'AG-LEG', childItemId: 'PT-401' });
+    expect(state.lastError).toBeNull();
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-7', effectiveFromDay: 3 });
+    state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 3, configuration: config });
+    expect(state.lastError).toBeNull();
+    expect(state.alternateOverrides).toEqual({});
+    expect(() => effectiveMbomLines(state)).not.toThrow();
+    expect(effectiveMbomLines(state).filter((l) => l.alternateGroupId === 'AG-LEG').map((l) => l.childItemId)).toEqual(['PT-400']);
+  });
+});
+
+describe('guards added to the existing revise, and M-BOM lines', () => {
+  it('rejects M-BOM lines in revise, end and replace, and invalid days in revise', () => {
+    const lines: PlmBomLine[] = [
+      { bomLineId: 'M-1', bomType: 'M', parentItemId: 'A', childItemId: 'B', qtyPer: 1, version: 1, effectiveFromDay: 0 },
+    ];
+    addEbomLine(lines, { bomLineId: 'E-1', parentItemId: 'A', childItemId: 'B', qtyPer: 1, effectiveFromDay: 0 });
+    const before = structuredClone(lines);
+    expect(() => reviseEbomLine(lines, 'M-1', { qtyPer: 2 }, 'X', 3, 'ECR-1')).toThrow(/E-BOM行ではありません/);
+    expect(() => endEbomLine(lines, 'M-1', 3)).toThrow(/E-BOM行ではありません/);
+    expect(() => replaceEbomChild(lines, 'M-1', 'C', 'X', 3)).toThrow(/E-BOM行ではありません/);
+    expect(() => reviseEbomLine(lines, 'E-1', { qtyPer: 2 }, 'X', Number.NaN)).toThrow(/0以上の整数/);
+    expect(() => reviseEbomLine(lines, 'E-1', { qtyPer: 2 }, 'X', 1.5)).toThrow(/0以上の整数/);
+    expect(lines).toEqual(before);
+  });
+
+  it('allows a replacement to a child the parent has under another option code', () => {
+    const lines: PlmBomLine[] = [];
+    addEbomLine(lines, { bomLineId: 'E-1', parentItemId: 'SA-200', childItemId: 'RM-300', qtyPer: 1, effectiveFromDay: 0, optionGroupId: 'OG', optionCode: '無垢材' });
+    addEbomLine(lines, { bomLineId: 'E-2', parentItemId: 'SA-200', childItemId: 'RM-301', qtyPer: 1, effectiveFromDay: 0, optionGroupId: 'OG', optionCode: '布張り' });
+    expect(() => replaceEbomChild(lines, 'E-1', 'RM-301', 'E-3', 2)).not.toThrow();
   });
 });
