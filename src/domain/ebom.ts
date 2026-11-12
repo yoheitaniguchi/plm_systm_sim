@@ -36,6 +36,7 @@ export interface NewEbomLineInput {
   isEbomOnly?: boolean;
   optionGroupId?: string;
   optionCode?: string;
+  changeId?: string; // 由来の変更（任意。PLM-EXT-21）
 }
 
 // UC-EBOM-1: 新規E-BOM行は版数1で作成される。
@@ -58,6 +59,7 @@ export function addEbomLine(bomLines: PlmBomLine[], input: NewEbomLineInput): Pl
     optionGroupId: input.optionGroupId,
     optionCode: input.optionCode,
   };
+  if (input.changeId !== undefined) line.changeId = input.changeId;
   bomLines.push(line);
   return line;
 }
@@ -70,6 +72,7 @@ export function reviseEbomLine(
   patch: Partial<Pick<PlmBomLine, 'qtyPer' | 'processStep' | 'optionGroupId' | 'optionCode'>>,
   newBomLineId: string,
   effectiveFromDay: number,
+  changeId?: string, // 由来の変更（任意。PLM-EXT-21）
 ): PlmBomLine {
   const oldLine = bomLines.find((l) => l.bomLineId === bomLineId);
   if (!oldLine) throw new Error(`E-BOM行 ${bomLineId} が見つかりません`);
@@ -90,6 +93,97 @@ export function reviseEbomLine(
     effectiveFromDay,
     effectiveToDay: undefined,
   };
+  // 由来の変更は版ごとに記録する（旧版の由来を新しい版へ持ち越さない）
+  delete newLine.changeId;
+  delete newLine.endChangeId;
+  if (changeId !== undefined) {
+    newLine.changeId = changeId;
+    oldLine.endChangeId = changeId;
+  }
+  bomLines.push(newLine);
+  return newLine;
+}
+
+// 日付の意味（PLM-EXT-21）：終了・置換に渡す日は「変更が効く日」。改訂（reviseEbomLine）と同じで、
+// 行はその前日まで有効、その日から無効になる（effectiveToDayにはこの日を入れる。isEffectiveAsOf()は
+// day < effectiveToDay で判定する）。行が1日も有効にならない終了はできないので、行の開始日より後の日だけを受け付ける。
+function assertChangeDay(line: PlmBomLine, day: number): void {
+  if (!Number.isInteger(day) || day < 0) {
+    throw new Error('変更が効く日は0以上の整数（日数）である必要があります');
+  }
+  if (line.bomType !== 'E') throw new Error(`${line.bomLineId} はE-BOM行ではありません`);
+  if (line.effectiveToDay !== undefined) {
+    throw new Error(`E-BOM行 ${line.bomLineId} は既に旧版化されています`);
+  }
+  if (day <= line.effectiveFromDay) {
+    throw new Error('変更が効く日は、行の有効開始日より後である必要があります');
+  }
+}
+
+// E-BOM行の終了（PLM-EXT-21）。後継の行を作らずに閉じる。行は削除せず履歴に残す。
+export function endEbomLine(
+  bomLines: PlmBomLine[],
+  bomLineId: string,
+  effectiveFromDay: number, // 変更が効く日（この日から行が無効になる）
+  changeId?: string,
+): PlmBomLine {
+  const line = bomLines.find((l) => l.bomLineId === bomLineId);
+  if (!line) throw new Error(`E-BOM行 ${bomLineId} が見つかりません`);
+  assertChangeDay(line, effectiveFromDay);
+  line.effectiveToDay = effectiveFromDay;
+  if (changeId !== undefined) line.endChangeId = changeId;
+  return line;
+}
+
+// 子品目の置換（PLM-EXT-21）。旧行を終了し、同じ親・同じ員数・同じ属性で子品目だけが違う行を足す。
+// 新しい行は別の子品目の行なので、版の続きにせず版数1から始める。
+export function replaceEbomChild(
+  bomLines: PlmBomLine[],
+  bomLineId: string,
+  newChildItemId: string,
+  newBomLineId: string,
+  effectiveFromDay: number, // 変更が効く日（この日から旧行が無効、新しい行が有効）
+  changeId?: string,
+): PlmBomLine {
+  const oldLine = bomLines.find((l) => l.bomLineId === bomLineId);
+  if (!oldLine) throw new Error(`E-BOM行 ${bomLineId} が見つかりません`);
+  assertChangeDay(oldLine, effectiveFromDay);
+  if (newChildItemId === oldLine.childItemId) {
+    throw new Error('置換後の子品目が今と同じです');
+  }
+  const duplicate = bomLines.some(
+    (l) =>
+      l.bomType === 'E' &&
+      l.effectiveToDay === undefined &&
+      l.parentItemId === oldLine.parentItemId &&
+      l.childItemId === newChildItemId &&
+      l.optionGroupId === oldLine.optionGroupId &&
+      l.optionCode === oldLine.optionCode,
+  );
+  if (duplicate) {
+    throw new Error(`${oldLine.parentItemId} は既に ${newChildItemId} を子に持っています（員数を変えるには、その行を改訂してください）`);
+  }
+  // 旧行を除いた状態で循環を調べる（旧行はこの操作で無効になる）
+  const others = bomLines.filter((l) => l !== oldLine);
+  if (wouldCreateCycle(others, 'E', oldLine.parentItemId, newChildItemId)) {
+    throw new Error(`${oldLine.parentItemId} → ${newChildItemId} を追加すると循環参照になるため置換できません`);
+  }
+
+  oldLine.effectiveToDay = effectiveFromDay;
+  const newLine: PlmBomLine = {
+    ...oldLine,
+    childItemId: newChildItemId,
+    bomLineId: newBomLineId,
+    version: 1,
+    effectiveFromDay,
+    effectiveToDay: undefined,
+  };
+  delete newLine.changeId;
+  delete newLine.endChangeId;
+  if (changeId !== undefined) {
+    newLine.changeId = changeId;
+    oldLine.endChangeId = changeId;
+  }
   bomLines.push(newLine);
   return newLine;
 }

@@ -27,8 +27,12 @@ export function convertEbomToMbom(
 
     if (isEbomOnlyGroup(line.childItemId, ebomLines)) continue; // グループ自体はM-BOMに出さない
 
+    // 由来の変更（changeId・endChangeId）はE-BOM行の記録で、M-BOM行には持ち込まない（PLM-EXT-21）
+    const { changeId: _changeId, endChangeId: _endChangeId, ...rest } = line;
+    void _changeId;
+    void _endChangeId;
     result.push({
-      ...line,
+      ...rest,
       bomLineId: `M-${line.bomLineId}`,
       bomType: 'M',
       parentItemId: effectiveParentId,

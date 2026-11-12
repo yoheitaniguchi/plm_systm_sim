@@ -95,7 +95,11 @@ export type AppAction =
       bomLineId: string;
       patch: Parameters<typeof ebom.reviseEbomLine>[2];
       effectiveFromDay: number;
+      changeId?: string;
     }
+  // effectiveFromDayは「変更が効く日」（その日から旧行が無効になる。PLM-EXT-21）
+  | { type: 'ebom/endLine'; bomLineId: string; effectiveFromDay: number; changeId?: string }
+  | { type: 'ebom/replaceChild'; bomLineId: string; newChildItemId: string; effectiveFromDay: number; changeId?: string }
   | { type: 'variant/resolveConfiguration'; baseItemId: string; selections: Record<string, string>; resolvedItemId: string; resolvedItemName: string }
   | {
       type: 'mbom/convert';
@@ -193,6 +197,7 @@ function applyAction(draft: AppState, action: AppAction): void {
     }
 
     case 'ebom/addLine': {
+      assertKnownChange(draft, action.input.changeId);
       ebom.addEbomLine(draft.bomLines, action.input);
       break;
     }
@@ -200,7 +205,30 @@ function applyAction(draft: AppState, action: AppAction): void {
       // プリセットや取り込みで使われている行IDと衝突しないIDを発番する（PLM-EXT-16）
       let newBomLineId = nextId(draft, 'E');
       while (draft.bomLines.some((l) => l.bomLineId === newBomLineId)) newBomLineId = nextId(draft, 'E');
-      ebom.reviseEbomLine(draft.bomLines, action.bomLineId, action.patch, newBomLineId, action.effectiveFromDay);
+      assertKnownChange(draft, action.changeId);
+      ebom.reviseEbomLine(draft.bomLines, action.bomLineId, action.patch, newBomLineId, action.effectiveFromDay, action.changeId);
+      break;
+    }
+    case 'ebom/endLine': {
+      assertKnownChange(draft, action.changeId);
+      ebom.endEbomLine(draft.bomLines, action.bomLineId, action.effectiveFromDay, action.changeId);
+      break;
+    }
+    case 'ebom/replaceChild': {
+      assertKnownChange(draft, action.changeId);
+      if (!draft.items.some((i) => i.itemId === action.newChildItemId)) {
+        throw new Error(`品目 ${action.newChildItemId} が見つかりません`);
+      }
+      let newBomLineId = nextId(draft, 'E');
+      while (draft.bomLines.some((l) => l.bomLineId === newBomLineId)) newBomLineId = nextId(draft, 'E');
+      ebom.replaceEbomChild(
+        draft.bomLines,
+        action.bomLineId,
+        action.newChildItemId,
+        newBomLineId,
+        action.effectiveFromDay,
+        action.changeId,
+      );
       break;
     }
 
@@ -499,6 +527,13 @@ function applyAction(draft: AppState, action: AppAction): void {
     case 'ui/advanceDay':
       draft.currentDay += action.byDays;
       break;
+  }
+}
+
+// 由来の変更は任意。指定するなら、登録済みの変更（状態は問わない）でなければならない（PLM-EXT-21）
+function assertKnownChange(draft: AppState, changeId: string | undefined): void {
+  if (changeId !== undefined && !draft.changes.some((c) => c.changeId === changeId)) {
+    throw new Error(`変更 ${changeId} が見つかりません`);
   }
 }
 
