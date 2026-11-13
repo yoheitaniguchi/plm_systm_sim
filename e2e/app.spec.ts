@@ -513,3 +513,44 @@ test.describe('persistence (PLM-EXT-24・25)', () => {
     expect(await first.evaluate(() => localStorage.getItem('plm-systm-sim:state'))).toBeNull();
   });
 });
+
+test.describe('theme (PLM-EXT-26)', () => {
+  const TAB_NAMES = ['品目', 'E-BOM', 'M-BOM', '工程（BOP）', '資源（BOR）', '変更管理', '文書', '連携', '影響分析', '発注BOM', '計画BOM'];
+
+  test('follows the OS setting by default, and keeps an explicit choice across a reload even with saving off', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    const html = page.locator('html');
+    await expect(html).toHaveAttribute('data-theme', 'dark');
+    await page.emulateMedia({ colorScheme: 'light' });
+    await expect(html).toHaveAttribute('data-theme', 'light');
+
+    await page.getByLabel('表示：').selectOption('dark');
+    await expect(html).toHaveAttribute('data-theme', 'dark');
+    // 保存をオフにしてもテーマは残る（所有者決定：連動させない）
+    await page.getByLabel('このブラウザに保存する').uncheck();
+    await page.reload();
+    await expect(html).toHaveAttribute('data-theme', 'dark');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await expect(page.getByLabel('表示：')).toHaveValue('dark');
+  });
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`every tab has no serious axe violations in the ${theme} theme`, async ({ page }) => {
+      await page.goto('/');
+      await page.getByRole('button', { name: 'スキップ' }).click();
+      await page.getByLabel('表示：').selectOption(theme);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      // バッジ・強調表示が出る画面も検査に入るよう、木製イスの M-BOM を作っておく
+      await page.getByRole('navigation', { name: 'ドメインタブ' }).getByRole('button', { name: 'M-BOM' }).click();
+      await page.getByRole('button', { name: 'M-BOMに変換' }).click();
+      for (const name of TAB_NAMES) {
+        await page.getByRole('navigation', { name: 'ドメインタブ' }).getByRole('button', { name, exact: true }).click();
+        const results = await new AxeBuilder({ page }).analyze();
+        const serious = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+        expect(serious, `${theme} / ${name}: ${JSON.stringify(serious, null, 2)}`).toEqual([]);
+      }
+    });
+  }
+});

@@ -1,16 +1,63 @@
-:root {
+:root,
+:root[data-theme='light'] {
+  /* ライト：真っ白を避けた温かみのあるオフホワイト（PLM-EXT-26）。文字は背景・パネルの両方で 4.5:1 以上 */
   color-scheme: light;
-  --color-bg: #f5f6f8;
-  --color-surface: #ffffff;
-  --color-border: #d7dbe0;
-  --color-text: #1f2430;
-  --color-muted: #5b6472;
+  --color-bg: #e9e7e1;
+  --color-surface: #f5f4ef;
+  --color-surface-sunken: #e2e0d9;
+  --color-input-bg: #fbfaf7;
+  --color-border: #c9c6bc;
+  --color-text: #2a2e35;
+  --color-muted: #535863;
   --color-primary: #2a5db0;
-  --color-danger: #b3261e;
-  --color-warning: #8a5a00;
-  --color-warning-bg: #fff4da;
-  --color-error-bg: #fdeceb;
-  --color-info-bg: #e8f0fe;
+  --color-primary-hover: #204a8c;
+  --color-on-primary: #ffffff;
+  --color-danger: #a8231c;
+  --color-warning: #6f4a00;
+  --color-warning-bg: #f4e9cc;
+  --color-error-bg: #f5e1dd;
+  --color-info-bg: #dfe6f1;
+  --color-success: #19693a;
+  --color-highlight-bg: #f2e3a0;
+  --color-ebom-only-bg: #ebe0f6;
+  --color-ebom-only-border: #c3a3ec;
+  --color-option-bg: #dcebdf;
+  --color-option-border: #9ccaa9;
+  --color-alternate-bg: #f3dfcb;
+  --color-alternate-border: #dcac74;
+  --color-overlay: rgba(20, 24, 32, 0.55);
+}
+
+:root[data-theme='dark'] {
+  /* ダーク：青みを抑えた濃いグレー（PLM-EXT-26） */
+  color-scheme: dark;
+  --color-bg: #1c1f24;
+  --color-surface: #252930;
+  --color-surface-sunken: #2f343c;
+  --color-input-bg: #1f2228;
+  --color-border: #444a55;
+  --color-text: #e2e5ea;
+  --color-muted: #a8afba;
+  --color-primary: #8ab4f8;
+  --color-primary-hover: #a8c7fa;
+  --color-on-primary: #10213f;
+  --color-danger: #f2a39c;
+  --color-warning: #e8c56f;
+  --color-warning-bg: #3a3120;
+  --color-error-bg: #3e2624;
+  --color-info-bg: #1f2b40;
+  --color-success: #82d49c;
+  --color-highlight-bg: #5c4f17;
+  --color-ebom-only-bg: #3a2e4e;
+  --color-ebom-only-border: #8064b4;
+  --color-option-bg: #233a2b;
+  --color-option-border: #4f8c62;
+  --color-alternate-bg: #44311f;
+  --color-alternate-border: #a8763c;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+}
+
+:root {
   --radius: 8px;
   font-family: 'Hiragino Kaku Gothic ProN', 'Yu Gothic', system-ui, -apple-system, sans-serif;
 }
@@ -109,7 +156,7 @@ body {
 }
 
 .data-table th {
-  background: #eef1f5;
+  background: var(--color-surface-sunken);
 }
 
 .actions-cell {
@@ -145,7 +192,7 @@ body {
   border: 1px solid var(--color-border);
   border-radius: 6px;
   color: var(--color-text);
-  background: white;
+  background: var(--color-input-bg);
 }
 
 textarea {
@@ -156,6 +203,8 @@ textarea {
   border: 1px solid var(--color-border);
   border-radius: 6px;
   margin: 0.5rem 0;
+  color: var(--color-text);
+  background: var(--color-input-bg);
 }
 
 button {
@@ -168,25 +217,25 @@ button {
 
 .primary-button {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .primary-button:hover {
-  background: #204a8c;
+  background: var(--color-primary-hover);
 }
 
 .secondary-button {
-  background: white;
+  background: var(--color-surface);
   border-color: var(--color-border);
   color: var(--color-text);
 }
 
 .secondary-button:hover {
-  background: #eef1f5;
+  background: var(--color-surface-sunken);
 }
 
 .danger-button {
-  background: white;
+  background: var(--color-surface);
   border-color: var(--color-danger);
   color: var(--color-danger);
 }
@@ -230,26 +279,26 @@ button {
   display: inline-block;
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
-  background: #eef1f5;
+  background: var(--color-surface-sunken);
   font-size: 0.78rem;
   border: 1px solid var(--color-border);
 }
 
 .badge--ebom-only {
-  background: #f3e8ff;
-  border-color: #d3b3ff;
+  background: var(--color-ebom-only-bg);
+  border-color: var(--color-ebom-only-border);
   margin-left: 0.4rem;
 }
 
 .badge--option {
-  background: #e6f4ea;
-  border-color: #a9dbb7;
+  background: var(--color-option-bg);
+  border-color: var(--color-option-border);
   margin-left: 0.4rem;
 }
 
 .badge--alternate {
-  background: #fde9d9;
-  border-color: #f0bf85;
+  background: var(--color-alternate-bg);
+  border-color: var(--color-alternate-border);
   margin-left: 0.4rem;
 }
 
@@ -321,7 +370,7 @@ button {
 }
 
 .bom-node--highlight {
-  background: #fff2b2;
+  background: var(--color-highlight-bg);
   border-radius: 4px;
   padding: 0.1rem 0.4rem;
 }
@@ -340,7 +389,7 @@ button {
 }
 
 .delta-negative {
-  color: #1a7d3a;
+  color: var(--color-success);
 }
 
 .delta-positive {
@@ -350,7 +399,7 @@ button {
 .onboarding-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 24, 32, 0.55);
+  background: var(--color-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -359,7 +408,7 @@ button {
 }
 
 .onboarding-card {
-  background: white;
+  background: var(--color-surface);
   border-radius: 12px;
   max-width: 560px;
   width: 100%;
@@ -404,12 +453,12 @@ button {
 
 .mbom-flatten-diagram__node--root {
   font-weight: 600;
-  background: #eef1f5;
+  background: var(--color-surface-sunken);
 }
 
 .mbom-flatten-diagram__node--group {
-  border-color: #d3b3ff;
-  background: #f3e8ff;
+  border-color: var(--color-ebom-only-border);
+  background: var(--color-ebom-only-bg);
 }
 
 .mbom-flatten-diagram__node--child {
@@ -486,4 +535,30 @@ button {
 .checkbox-label input {
   width: 1.1rem;
   height: 1.1rem;
+}
+
+/* 保存メニューとテーマ切り替えの並び（PLM-EXT-26） */
+.app-header__settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 1.5rem;
+}
+
+.theme-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.theme-switcher select,
+.approval-controls__row input {
+  font: inherit;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  background: var(--color-input-bg);
 }
