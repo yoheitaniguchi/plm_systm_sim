@@ -85,7 +85,7 @@ function BomNode({
         {inputOperation === null && <span className="badge badge--warning">投入工程 未割当</span>}
       </span>
       {children.length > 0 && (
-        <ul>
+        <ul role="group">
           {children.map((line) => (
             <BomNode
               key={line.bomLineId}

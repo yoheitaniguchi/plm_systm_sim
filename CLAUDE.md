@@ -68,9 +68,10 @@ plm_systm_sim/
     │   ├── planningBom.ts               # 計画BOM：確定済みM-BOMの時系列所要展開（PLM-EXT-13）
     │   ├── operation.ts                 # 工程（BOP）：追加・改訂・順序変更・終了、工順との相互変換（PLM-EXT-17）
     │   ├── resource.ts                  # 資源（BOR）：工程ごとの設備・治具工具・スキルの追加・削除、横断一覧（PLM-EXT-19）
+    │   ├── revision.ts                  # 品目リビジョン：E-BOM行の版数＋有効日からの導出と、リビジョン間の差分（PLM-EXT-22）
     │   ├── reducer.ts                  # useReducer用reducer。actionを各モジュールへディスパッチ
     │   ├── presets.ts                  # 教材用サンプルデータ（木製イス／自転車は4章、コンベア装置はPLM-EXT-15）
-    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（191件）
+    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（214件）
     └── ui/                        # 画面（design.md §5）
         ├── App.tsx                    # タブナビゲーション＋オンボーディングの保持
         ├── Onboarding.tsx              # 初回起動時の5ステップガイド（要件書10.2）
@@ -82,6 +83,7 @@ plm_systm_sim/
         │   └── Banner.tsx                 # エラー・警告・情報バナー
         └── tabs/                       # 11タブの画面
             ├── ItemsTab.tsx / EbomTab.tsx / MbomTab.tsx / ChangeManagementTab.tsx
+            ├── EbomChangePanel.tsx                        # E-BOMタブ内：行の改訂・終了・置換、リビジョン履歴・比較（PLM-EXT-23）
             ├── DocumentTab.tsx / SyncTab.tsx / ImpactTab.tsx
             ├── PurchaseBomTab.tsx / PlanningBomTab.tsx    # 発注BOM／計画BOM（PLM-EXT-13）
             ├── OperationTab.tsx                           # 工程（BOP）：工程の編集と投入工程の割り当て（PLM-EXT-17・18）
@@ -98,7 +100,7 @@ npm run dev          # 開発サーバー起動（ルート配信）
 npm run build        # 型チェック（tsc -b）＋ビルド（vite build、GitHub Pages用baseパス）
 npm run typecheck    # 型チェックのみ実行（tsc -b --noEmit）
 npm run lint         # eslint
-npm test             # vitestによる自動テスト全件実行（191件、要件書8章の42ユースケース相当＋PLM-EXT-13〜21分）
+npm test             # vitestによる自動テスト全件実行（214件、要件書8章の42ユースケース相当＋PLM-EXT-13〜23分）
 npx vitest run <path> # 特定テストのみ実行（例: npx vitest run src/domain/__tests__/mbom.test.ts）
 npm run preview      # build成果物をGitHub Pages相当のbaseパスで動作確認
 npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリティ自動検査（npm run devを自動起動）
@@ -128,8 +130,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 要件書のスコープ外の新規機能である発注BOM・計画BOM（PLM-EXT-13、Issue #8・#9）、ECOのbefore/after BOM
 比較（PLM-EXT-14、Issue #4）を実装済み。**
 
-- `src/domain/`：11モジュール（`item.ts`・`ebom.ts`・`mbom.ts`・`changeManagement.ts`・`document.ts`・
-  `masterSnapshot.ts`・`impactAnalysis.ts`・`planningBom.ts`・`operation.ts`・`resource.ts`）＋`reducer.ts`（`structuredClone`した
+- `src/domain/`：12モジュール（`item.ts`・`ebom.ts`・`mbom.ts`・`changeManagement.ts`・`document.ts`・
+  `masterSnapshot.ts`・`impactAnalysis.ts`・`planningBom.ts`・`operation.ts`・`resource.ts`・`revision.ts`）＋`reducer.ts`（`structuredClone`した
   状態を各ドメインモジュールへ渡し、モジュール側が直接書き換える設計）を実装済み。教材データは
   `presets.ts`に木製イす（`createWoodenChairDemoState()`、脚部ユニットグループ・座面バリアント・脚の
   代替部品グループを含む）・自転車（`bicycleMasterSnapshot`、4階層BOM）・コンベア装置
@@ -142,7 +144,7 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   ディスパッチ時（`reducer.effectiveMbomLines()`を`structuredClone`）に記録し、`ImpactTab.tsx`の
   「ECRごとの原価影響（起票時点比較）」から`computeCostImpact()`でクローズ前後の原価差分を確認できる
   （PLM-EXT-14）。既存の代替部品切替の前後比較機能は維持したまま追加した
-- `src/domain/__tests__/`：191件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
+- `src/domain/__tests__/`：214件のテストで、要件書8章のユースケース（UC-ITEM/EBOM/MBOM/ECM/DOC/SYNC/
   IMPACT/ALT/VARIANT、計42件相当）＋発注BOM・計画BOM・ECOのbefore/after BOM比較・コンベア装置プリセット・M-BOM再変換（PLM-EXT-16）のテストを検証済み
 - `src/ui/`：11タブの画面（9ドメイン＋工程（BOP）・資源（BOR））＋木製イすの5ステップオンボーディングツアー（要件書10.2の台本どおり、
   脚部ユニットのハイライト→M-BOM変換のライブデモを含む）を実装済み。ステップ3の変換操作では
@@ -150,8 +152,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   （`prefers-reduced-motion: reduce`時は即時切替、要件書10.3）。`App.tsx`は`useReducer`で
   reducerを保持し、タブ切り替えとオンボーディング表示の制御のみを行う
 - `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、11タブ横断のナビゲーション、工程の編集と投入工程の割り当て、資源の追加と削除、
-  ECR→ECO→ECN→クローズの一連の操作フロー、連携タブでの工順の競合の解決、アクセシビリティスキャン
-  （critical/serious違反ゼロ）をブラウザで確認済み（14件、全件green）
+  ECR→ECO→ECN→クローズの一連の操作フロー、連携タブでの工順の競合の解決、E-BOM行の置換とリビジョンの履歴・差分、アクセシビリティスキャン
+  （critical/serious違反ゼロ）をブラウザで確認済み（15件、全件green）
 - `.github/workflows/`：`test.yml`（PR gate）・`deploy.yml`（GitHub Pages自動デプロイ）・
   `pr-preview.yml`（PRプレビュー配信）を整備済み
 
@@ -198,6 +200,9 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   最終有効日の翌日）。行の開始日より後の日だけを受け付ける。置換後の行は版数1。行の由来の変更
   （`changeId`・`endChangeId`）は記録するだけで、変更管理とは連動させず、書き出さない。E-BOM限定グループへの行と
   グループの最後の子行は終了できず、代替部品グループの行は置換できない（design.md 追加決定PLM-EXT-21参照）
+- **品目リビジョンはデータとして持たない**：`revision.deriveRevisions()`が、その品目を親とするE-BOM行が変わった日で
+  区切って導出する（親の親は改版しない。状態も導出：予定／有効／旧版）。差分のキーは「子品目＋オプショングループ＋
+  オプションコード」。対象はE-BOMだけ（design.md 追加決定PLM-EXT-22参照）
 - **承認集計は「全員承認必須・1人でも却下で即却下」**（`changeManagement.aggregateApprovalStatus()`）。
   多数決や過半数ではない
 - **取消可否はSyncEventの有無で決まる**：ECOがエクスポート済み（`SyncEvent.status === '送信済'`）なら
