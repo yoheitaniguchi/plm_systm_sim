@@ -32,6 +32,7 @@ PLM（正確にはPDM＋ECM相当）の中核概念——品目ライフサイ�
 ## 技術スタック・アーキテクチャ
 
 - React + TypeScript + Vite。**バックエンドサーバーは持たない**（`docs/design.md` §1参照）
+- 画面はライト／ダークの2テーマ（既定はOSに合わせる。design.md PLM-EXT-26）。新しい色は`index.css`の変数として両テーマに定義する
 - 状態は `useReducer` で一元管理。DBなし。状態はブラウザの localStorage に自動保存し、リロード後も再開できる
   （既定はオン。ヘッダーで切ればリロードで消える従来の動き。design.md PLM-EXT-24・25。要件書2章の「永続化なし」からの方針転換）
 - ドメインロジックは `src/domain/` 配下にドメインごとのファイルへ分割し、純粋関数として実装してUIから
@@ -73,9 +74,10 @@ plm_systm_sim/
     │   ├── persistence.ts               # localStorage 永続化：保存形式・検証つき読み込み・壊れたデータの退避（PLM-EXT-24）
     │   ├── reducer.ts                  # useReducer用reducer。actionを各モジュールへディスパッチ
     │   ├── presets.ts                  # 教材用サンプルデータ（木製イス／自転車は4章、コンベア装置はPLM-EXT-15）
-    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（246件）
+    │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（246件。テーマの単体テストは`src/ui/__tests__/`に6件）
     └── ui/                        # 画面（design.md §5）
         ├── App.tsx                    # タブナビゲーション＋オンボーディングの保持、起動時の保存データの読み込み
+        ├── theme.ts                    # テーマ（OSに合わせる／ライト／ダーク）の選択の読み書きと解決（PLM-EXT-26）
         ├── usePersistence.ts           # 自動保存のタイミング（0.5秒まとめ・タブを閉じるときの書き出し）と別タブの検知（PLM-EXT-25）
         ├── Onboarding.tsx              # 初回起動時の5ステップガイド（要件書10.2）
         ├── format.ts                   # 表示用フォーマッタ
@@ -85,6 +87,7 @@ plm_systm_sim/
         │   │                              # フラット化のCSSトランジション（要件書10.3）
         │   ├── Banner.tsx                 # エラー・警告・情報バナー
         │   ├── PersistenceControls.tsx     # ヘッダーの保存メニューと、保存に関するお知らせ（PLM-EXT-25）
+        │   ├── ThemeSwitcher.tsx           # ヘッダーのライト／ダーク切り替え（PLM-EXT-26）
         │   └── ErrorBoundary.tsx           # 描画中の例外の逃げ道（保存データを退避してサンプルで起動し直す）
         └── tabs/                       # 11タブの画面
             ├── ItemsTab.tsx / EbomTab.tsx / MbomTab.tsx / ChangeManagementTab.tsx
@@ -105,7 +108,7 @@ npm run dev          # 開発サーバー起動（ルート配信）
 npm run build        # 型チェック（tsc -b）＋ビルド（vite build、GitHub Pages用baseパス）
 npm run typecheck    # 型チェックのみ実行（tsc -b --noEmit）
 npm run lint         # eslint
-npm test             # vitestによる自動テスト全件実行（246件、要件書8章の42ユースケース相当＋PLM-EXT-13〜25分）
+npm test             # vitestによる自動テスト全件実行（252件、要件書8章の42ユースケース相当＋PLM-EXT-13〜25分）
 npx vitest run <path> # 特定テストのみ実行（例: npx vitest run src/domain/__tests__/mbom.test.ts）
 npm run preview      # build成果物をGitHub Pages相当のbaseパスで動作確認
 npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリティ自動検査（npm run devを自動起動）
@@ -157,8 +160,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   （`prefers-reduced-motion: reduce`時は即時切替、要件書10.3）。`App.tsx`は`useReducer`で
   reducerを保持し、タブ切り替えとオンボーディング表示の制御のみを行う
 - `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、11タブ横断のナビゲーション、工程の編集と投入工程の割り当て、資源の追加と削除、
-  ECR→ECO→ECN→クローズの一連の操作フロー、連携タブでの工順の競合の解決、E-BOM行の置換とリビジョンの履歴・差分、保存と復元（壊れたデータ・複数タブを含む）、アクセシビリティスキャン
-  （critical/serious違反ゼロ）をブラウザで確認済み（22件、全件green）
+  ECR→ECO→ECN→クローズの一連の操作フロー、連携タブでの工順の競合の解決、E-BOM行の置換とリビジョンの履歴・差分、保存と復元（壊れたデータ・複数タブを含む）、テーマの切り替え、ライト・ダーク両テーマの全タブのアクセシビリティスキャン
+  （critical/serious違反ゼロ）をブラウザで確認済み（25件、全件green）
 - `.github/workflows/`：`test.yml`（PR gate）・`deploy.yml`（GitHub Pages自動デプロイ）・
   `pr-preview.yml`（PRプレビュー配信）を整備済み
 

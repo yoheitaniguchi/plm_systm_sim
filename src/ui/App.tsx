@@ -4,6 +4,7 @@ import { createWoodenChairDemoState } from '../domain/presets';
 import { reducer } from '../domain/reducer';
 import { Banner } from './components/Banner';
 import { PersistenceMenu, PersistenceNotices } from './components/PersistenceControls';
+import { ThemeSwitcher } from './components/ThemeSwitcher';
 import { browserStorage, usePersistence } from './usePersistence';
 import { Onboarding } from './Onboarding';
 import { ChangeManagementTab } from './tabs/ChangeManagementTab';
@@ -79,7 +80,10 @@ export function App() {
           </button>
           <span className="app-header__subtitle">日付だけが進みます。BOM行・工程の改訂は、前の版より後の日に行えます。</span>
         </div>
-        <PersistenceMenu persistence={persistence} />
+        <div className="app-header__settings">
+          <PersistenceMenu persistence={persistence} />
+          <ThemeSwitcher storage={boot.storage} />
+        </div>
       </header>
 
       <PersistenceNotices boot={boot.result} storage={boot.storage} persistence={persistence} />
