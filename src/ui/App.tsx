@@ -52,8 +52,9 @@ export function App() {
   );
   const persistence = usePersistence(boot.storage, state, boot.enabled);
   const [activeTab, setActiveTab] = useState<TabKey>('item');
-  // オンボーディングは保存データから再開したときは出さない（所有者決定 Q3）
-  const [showOnboarding, setShowOnboarding] = useState(boot.result.kind !== 'restored');
+  // オンボーディングは保存データから再開したときは出さない（所有者決定 Q3）。
+  // 保存データを読めなかったときも、理由のお知らせがツアーの下に隠れないよう出さない
+  const [showOnboarding, setShowOnboarding] = useState(boot.result.kind === 'fresh' || boot.result.kind === 'unavailable');
   const [showEcrGuide, setShowEcrGuide] = useState(true);
   const [prefillImpactedItemIds, setPrefillImpactedItemIds] = useState<string[] | null>(null);
 

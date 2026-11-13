@@ -84,7 +84,8 @@ plm_systm_sim/
         │   ├── MbomFlattenAnimation.tsx    # オンボーディングステップ3限定：脚部ユニット消滅→
         │   │                              # フラット化のCSSトランジション（要件書10.3）
         │   ├── Banner.tsx                 # エラー・警告・情報バナー
-        │   └── PersistenceControls.tsx     # ヘッダーの保存メニューと、保存に関するお知らせ（PLM-EXT-25）
+        │   ├── PersistenceControls.tsx     # ヘッダーの保存メニューと、保存に関するお知らせ（PLM-EXT-25）
+        │   └── ErrorBoundary.tsx           # 描画中の例外の逃げ道（保存データを退避してサンプルで起動し直す）
         └── tabs/                       # 11タブの画面
             ├── ItemsTab.tsx / EbomTab.tsx / MbomTab.tsx / ChangeManagementTab.tsx
             ├── EbomChangePanel.tsx                        # E-BOMタブ内：行の改訂・終了・置換、リビジョン履歴・比較（PLM-EXT-23）
@@ -156,8 +157,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   （`prefers-reduced-motion: reduce`時は即時切替、要件書10.3）。`App.tsx`は`useReducer`で
   reducerを保持し、タブ切り替えとオンボーディング表示の制御のみを行う
 - `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、11タブ横断のナビゲーション、工程の編集と投入工程の割り当て、資源の追加と削除、
-  ECR→ECO→ECN→クローズの一連の操作フロー、連携タブでの工順の競合の解決、E-BOM行の置換とリビジョンの履歴・差分、アクセシビリティスキャン
-  （critical/serious違反ゼロ）をブラウザで確認済み（15件、全件green）
+  ECR→ECO→ECN→クローズの一連の操作フロー、連携タブでの工順の競合の解決、E-BOM行の置換とリビジョンの履歴・差分、保存と復元（壊れたデータ・複数タブを含む）、アクセシビリティスキャン
+  （critical/serious違反ゼロ）をブラウザで確認済み（22件、全件green）
 - `.github/workflows/`：`test.yml`（PR gate）・`deploy.yml`（GitHub Pages自動デプロイ）・
   `pr-preview.yml`（PRプレビュー配信）を整備済み
 
