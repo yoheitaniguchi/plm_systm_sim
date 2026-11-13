@@ -146,11 +146,21 @@ export function ebomLineBlockers(bomLines: PlmBomLine[], line: PlmBomLine, day: 
   if (isEbomOnlyGroup(line.childItemId, current)) {
     blockers.end = 'E-BOM限定グループへの行';
     blockers.replace = 'E-BOM限定グループへの行';
-  } else if (line.isEbomOnly && current.filter((l) => l.parentItemId === line.parentItemId && l.isEbomOnly).length === 1) {
-    blockers.end = 'グループの最後の子';
+  } else if (wouldEmptyGroup(bomLines, line, day)) {
+    blockers.end = 'グループで今有効な最後の子';
   }
   if (line.alternateGroupId !== undefined) blockers.replace = '代替部品グループの行';
   return blockers;
+}
+
+// E-BOM限定グループの子行を、その日から終了するとグループが空になるか（PLM-EXT-21、X3 事後判断）。
+// 終了の日に既に有効で、終わる予定の無いほかの子が1つも無ければ空になる。未来の日から始まる子は数えない
+// （数えると、その子が始まるまでの間グループの子が0になる抜け道になるため）。
+function wouldEmptyGroup(bomLines: PlmBomLine[], line: PlmBomLine, day: number): boolean {
+  if (!line.isEbomOnly) return false;
+  return !currentEbomLines(bomLines).some(
+    (l) => l.bomLineId !== line.bomLineId && l.parentItemId === line.parentItemId && l.isEbomOnly && l.effectiveFromDay <= day,
+  );
 }
 
 // 「親 → E-BOM限定グループ」の行は終了・置換できない（PLM-EXT-21）。グループの子行が残ったまま親への
@@ -201,10 +211,9 @@ export function endEbomLine(
   if (!line) throw new Error(`E-BOM行 ${bomLineId} が見つかりません`);
   assertChangeDay(line, effectiveFromDay);
   assertNotLineToGroup(line, bomLines);
-  const current = currentEbomLines(bomLines);
-  if (line.isEbomOnly && current.filter((l) => l.parentItemId === line.parentItemId && l.isEbomOnly).length === 1) {
+  if (wouldEmptyGroup(bomLines, line, effectiveFromDay)) {
     throw new Error(
-      `E-BOM限定グループ ${line.parentItemId} の最後の子は終了できません（グループを空にする操作には対応していません）`,
+      `E-BOM限定グループ ${line.parentItemId} は、D${effectiveFromDay}に有効な子がこの行のほかに無いため終了できません（グループを空にする操作には対応していません）`,
     );
   }
   line.effectiveToDay = effectiveFromDay;

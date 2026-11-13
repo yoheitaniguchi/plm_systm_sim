@@ -219,11 +219,29 @@ describe('end / replace around E-BOM-only groups, alternates and staleness (wood
     state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-6', effectiveFromDay: 3 });
     expect(state.lastError).toBeNull();
     state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-7', effectiveFromDay: 3 });
-    expect(state.lastError).toMatch(/最後の子は終了できません/);
+    expect(state.lastError).toMatch(/D3に有効な子がこの行のほかに無いため終了できません/);
     // 変換は壊れず、グループはM-BOMに出ない
     state = reducer(state, { type: 'mbom/convert', effectiveFromDay: 3, configuration: config });
     expect(state.lastError).toBeNull();
     expect(currentMbomLines(state.bomLines).some((l) => l.childItemId === 'EU-450' || l.parentItemId === 'EU-450')).toBe(false);
+  });
+
+  it('refuses to end the last child in effect when the only other child starts later, so the group is never empty in between', () => {
+    let state = chair();
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-5', effectiveFromDay: 3 });
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-7', effectiveFromDay: 3 });
+    expect(state.lastError).toBeNull();
+    // D6から始まる子を足しても、D3〜D5 は E-6 しか無い
+    addEbomLine(state.bomLines, { bomLineId: 'E-90', parentItemId: 'EU-450', childItemId: 'PT-401', qtyPer: 4, effectiveFromDay: 6, isEbomOnly: true });
+    const before = structuredClone(state.bomLines);
+    expect(ebomLineBlockers(state.bomLines, state.bomLines.find((l) => l.bomLineId === 'E-6')!, 3)).toEqual({ end: 'グループで今有効な最後の子' });
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-6', effectiveFromDay: 3 });
+    expect(state.lastError).toMatch(/D3に有効な子がこの行のほかに無いため終了できません/);
+    expect(state.bomLines).toEqual(before);
+    // 後から始まる子が有効になる日からなら終了できる
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-6', effectiveFromDay: 6 });
+    expect(state.lastError).toBeNull();
+    expect(state.bomLines.find((l) => l.bomLineId === 'E-6')!.effectiveToDay).toBe(6);
   });
 
   it('refuses to replace a line of an alternate group', () => {
@@ -301,7 +319,7 @@ describe('ebomLineBlockers (PLM-EXT-23)', () => {
     // グループの子が1つになると、その行は終了できない
     endEbomLine(state.bomLines, 'E-5', 1);
     endEbomLine(state.bomLines, 'E-7', 1);
-    expect(ebomLineBlockers(state.bomLines, line('E-6'), 1)).toEqual({ end: 'グループの最後の子' });
+    expect(ebomLineBlockers(state.bomLines, line('E-6'), 1)).toEqual({ end: 'グループで今有効な最後の子' });
   });
 });
 
