@@ -219,6 +219,6 @@ describe('loadSavedState / saveState / settings', () => {
       removeItem: () => {},
     };
     expect(loadSavedState(throwing)).toEqual({ kind: 'unavailable', reason: expect.stringContaining('denied') });
-    expect(saveState(throwing, createWoodenChairDemoState(), AT)).toMatch(/保存できませんでした（QuotaExceededError）/);
+    expect(saveState(throwing, createWoodenChairDemoState(), AT)).toMatch(/保存できませんでした.*詳細：QuotaExceededError/);
   });
 });

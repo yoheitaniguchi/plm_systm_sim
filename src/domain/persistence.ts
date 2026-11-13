@@ -323,7 +323,7 @@ export function saveState(storage: KeyValueStorage, state: AppState, savedAt: st
     storage.setItem(STATE_KEY, serializeState(state, savedAt));
     return null;
   } catch (e) {
-    return `保存できませんでした（${(e as Error).message}）。このタブでは保存せずに続けます`;
+    return `このブラウザに保存できませんでした（保存領域の容量不足などが考えられます）。このタブでは保存を止めています。不要なデータを消してから「このブラウザに保存する」を外して入れ直すと、保存し直します（詳細：${(e as Error).message}）`;
   }
 }
 
@@ -334,6 +334,19 @@ export function setPersistenceEnabled(storage: KeyValueStorage, enabled: boolean
     if (!enabled) storage.removeItem(STATE_KEY);
   } catch {
     /* 設定を書けなくても画面の操作は続ける */
+  }
+}
+
+// 保存データを退避して消す（保存データから再開した画面が例外で止まったときの逃げ道。ErrorBoundary から使う）
+export function quarantineSavedState(storage: KeyValueStorage | null): void {
+  try {
+    const raw = storage?.getItem(STATE_KEY);
+    if (storage && raw) {
+      storage.setItem(BROKEN_KEY, raw);
+      storage.removeItem(STATE_KEY);
+    }
+  } catch {
+    /* 退避できなくても続ける */
   }
 }
 
@@ -361,7 +374,15 @@ export function discardBrokenData(storage: KeyValueStorage): void {
   }
 }
 
-// 保存データの savedAt（別のタブで保存されたことの表示に使う）
+export function readSavedJson(storage: KeyValueStorage | null): string | null {
+  try {
+    return storage?.getItem(STATE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// 保存データの savedAt（復元したときに最終保存の時刻を最初から表示する）
 export function savedAtOf(json: string | null): string | null {
   if (!json) return null;
   try {

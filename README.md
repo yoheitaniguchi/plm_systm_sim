@@ -61,7 +61,7 @@ e2e/                         # Playwright + axe-core
 ## アーキテクチャ方針
 
 - **状態管理**: `useReducer`。`reducer.ts` が `structuredClone` した状態を各ドメインモジュールへ渡し、モジュール側が直接書き換える（呼び出し側からは純粋関数として扱える）。
-- **永続化**: なし。`production_system_sim` と同じく単一セッション・リロードで状態が消える設計。
+- **永続化**: ブラウザの localStorage に自動保存し、リロード後も続きから再開できる（既定はオン。ヘッダーの「このブラウザに保存する」を外すと、リロードで消える従来の動きに戻る。design.md PLM-EXT-24・25）。
 - **マスタ連携**: `production_system_sim` の `masterIO.ts` が入出力する `MasterSnapshot` 形式のJSONをそのまま読み書きします（新規開発不要、疎結合・ファイルベース連携）。
 
 ## 開発プロセス

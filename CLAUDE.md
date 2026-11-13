@@ -32,7 +32,8 @@ PLM（正確にはPDM＋ECM相当）の中核概念——品目ライフサイ�
 ## 技術スタック・アーキテクチャ
 
 - React + TypeScript + Vite。**バックエンドサーバーは持たない**（`docs/design.md` §1参照）
-- 状態は `useReducer` で一元管理。永続化なし（DBなし）、単一セッション、ページリロードで状態は消える
+- 状態は `useReducer` で一元管理。DBなし。状態はブラウザの localStorage に自動保存し、リロード後も再開できる
+  （既定はオン。ヘッダーで切ればリロードで消える従来の動き。design.md PLM-EXT-24・25。要件書2章の「永続化なし」からの方針転換）
 - ドメインロジックは `src/domain/` 配下にドメインごとのファイルへ分割し、純粋関数として実装してUIから
   独立させる（要件書2章のディレクトリ構成をそのまま踏襲）
 - **操作粒度は要件書8章のユースケース単位**。品目のライフサイクル遷移・E-BOM/M-BOM編集・
@@ -74,14 +75,17 @@ plm_systm_sim/
     │   ├── presets.ts                  # 教材用サンプルデータ（木製イス／自転車は4章、コンベア装置はPLM-EXT-15）
     │   └── __tests__/*.test.ts         # 各モジュールに対応する単体テスト（244件）
     └── ui/                        # 画面（design.md §5）
-        ├── App.tsx                    # タブナビゲーション＋オンボーディングの保持
+        ├── App.tsx                    # タブナビゲーション＋オンボーディングの保持、起動時の保存データの読み込み
+        ├── usePersistence.ts           # 自動保存のタイミング（0.5秒まとめ・タブを閉じるときの書き出し）と別タブの検知（PLM-EXT-25）
         ├── Onboarding.tsx              # 初回起動時の5ステップガイド（要件書10.2）
         ├── format.ts                   # 表示用フォーマッタ
         ├── components/
         │   ├── BomTree.tsx                # E-BOM/M-BOM共用のツリー表示（深さ上限ガード付き）
         │   ├── MbomFlattenAnimation.tsx    # オンボーディングステップ3限定：脚部ユニット消滅→
         │   │                              # フラット化のCSSトランジション（要件書10.3）
-        │   └── Banner.tsx                 # エラー・警告・情報バナー
+        │   ├── Banner.tsx                 # エラー・警告・情報バナー
+        │   ├── PersistenceControls.tsx     # ヘッダーの保存メニューと、保存に関するお知らせ（PLM-EXT-25）
+        │   └── ErrorBoundary.tsx           # 描画中の例外の逃げ道（保存データを退避してサンプルで起動し直す）
         └── tabs/                       # 11タブの画面
             ├── ItemsTab.tsx / EbomTab.tsx / MbomTab.tsx / ChangeManagementTab.tsx
             ├── EbomChangePanel.tsx                        # E-BOMタブ内：行の改訂・終了・置換、リビジョン履歴・比較（PLM-EXT-23）
@@ -101,7 +105,7 @@ npm run dev          # 開発サーバー起動（ルート配信）
 npm run build        # 型チェック（tsc -b）＋ビルド（vite build、GitHub Pages用baseパス）
 npm run typecheck    # 型チェックのみ実行（tsc -b --noEmit）
 npm run lint         # eslint
-npm test             # vitestによる自動テスト全件実行（244件、要件書8章の42ユースケース相当＋PLM-EXT-13〜24分）
+npm test             # vitestによる自動テスト全件実行（244件、要件書8章の42ユースケース相当＋PLM-EXT-13〜25分）
 npx vitest run <path> # 特定テストのみ実行（例: npx vitest run src/domain/__tests__/mbom.test.ts）
 npm run preview      # build成果物をGitHub Pages相当のbaseパスで動作確認
 npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリティ自動検査（npm run devを自動起動）
@@ -153,8 +157,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
   （`prefers-reduced-motion: reduce`時は即時切替、要件書10.3）。`App.tsx`は`useReducer`で
   reducerを保持し、タブ切り替えとオンボーディング表示の制御のみを行う
 - `e2e/app.spec.ts`：Playwright + axe-coreで、オンボーディングの完走・スキップ、11タブ横断のナビゲーション、工程の編集と投入工程の割り当て、資源の追加と削除、
-  ECR→ECO→ECN→クローズの一連の操作フロー、連携タブでの工順の競合の解決、E-BOM行の置換とリビジョンの履歴・差分、アクセシビリティスキャン
-  （critical/serious違反ゼロ）をブラウザで確認済み（15件、全件green）
+  ECR→ECO→ECN→クローズの一連の操作フロー、連携タブでの工順の競合の解決、E-BOM行の置換とリビジョンの履歴・差分、保存と復元（壊れたデータ・複数タブを含む）、アクセシビリティスキャン
+  （critical/serious違反ゼロ）をブラウザで確認済み（22件、全件green）
 - `.github/workflows/`：`test.yml`（PR gate）・`deploy.yml`（GitHub Pages自動デプロイ）・
   `pr-preview.yml`（PRプレビュー配信）を整備済み
 
@@ -166,7 +170,6 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 | ドメイン | 件名 | 費用対効果 | 概要 |
 |---|---|---|---|
 | 基盤（CI） | CI継続確認 | 高 | `.github/workflows/`（test.yml・deploy.yml・pr-preview.yml）が全PRで正しく動作し続けているかの継続確認 |
-| マスタ | localStorage永続化 | 低〜中（実装コスト自体は低いが、要件書2章「永続化なし・単一セッション」という設計方針そのものの転換になるため、着手前に方針変更の可否をユーザーに確認する必要がある） | ブラウザリロードで状態が消える現状を、localStorageへの自動保存で解消する案 |
 
 ## 実装時に確認すべき設計判断（design.mdの要点）
 
@@ -214,7 +217,8 @@ npm run e2e          # Playwright＋axe-coreによるE2E・アクセシビリテ
 - ドメインロジックの関数群は、呼び出し側（`reducer.ts`）が渡した状態のクローンを直接書き換える設計にする
   （`reducer.ts`側で`structuredClone`してから渡す）。この層の外側（UI等）からは純粋関数として扱うこと
 - **BOMを再帰的に辿るコードを新しく書くときは、必ず訪問済み集合または深さ上限を持たせること**。
-  永続化が無いので、無限再帰でブラウザが固まると演習内容がすべて失われる
+  無限再帰でブラウザが固まると、保存前の演習内容が失われる（保存データに循環が入ると、起動のたびに固まるおそれもある。
+  読み込み時の循環検査はPLM-EXT-24）
 - `production_system_sim`互換の型（`ItemMaster`・`BomLine`等）とPLM独自拡張（`PlmItem`・`PlmBomLine`等）を
   混同しないこと。`production_system_sim`へ書き出す際は`masterSnapshot.stripPlmOnlyItemFields()`/
   `stripPlmOnlyBomFields()`で必ずPLM独自属性を取り除く
