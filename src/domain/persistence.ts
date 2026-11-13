@@ -204,7 +204,19 @@ export function parseSavedState(json: string): AppState {
     fail('alternateOverrides が不正です');
   }
 
-  // 参照の整合：資源は工程を（品目、工程コード）で指す。変更の由来は登録済みの変更
+  // 参照の整合：資源は工程を（品目、工程コード）で指す。BOM行の親子・工程は品目を、変更の由来は登録済みの変更を指す
+  // BOM行の親子と工程は品目を指す。E-BOM限定グループ（脚部ユニット等）は品目マスタに登録しないので、
+  // グループが親・子になる行は除く（グループ＝isEbomOnly の行の親。PLM-EXT-2）
+  const itemIds = new Set(items.map((it) => it.itemId));
+  const groups = new Set(bomLines.filter((l) => l.isEbomOnly === true).map((l) => l.parentItemId));
+  bomLines.forEach((l, i) => {
+    for (const field of ['parentItemId', 'childItemId']) {
+      if (!groups.has(l[field]) && !itemIds.has(l[field])) fail(`bomLines[${i}].${field}「${String(l[field])}」が存在しない品目を指しています`);
+    }
+  });
+  operations.forEach((o, i) => {
+    if (!itemIds.has(o.itemId)) fail(`operations[${i}].itemId「${String(o.itemId)}」が存在しない品目を指しています`);
+  });
   const opKeys = new Set(operations.map((o) => `${String(o.itemId)}::${String(o.opCode)}`));
   resources.forEach((r, i) => {
     if (!opKeys.has(`${String(r.itemId)}::${String(r.opCode)}`)) fail(`operationResources[${i}] が存在しない工程を指しています`);

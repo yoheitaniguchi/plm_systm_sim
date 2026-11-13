@@ -98,6 +98,21 @@ describe('serializeState / parseSavedState', () => {
       /存在しない工程を指しています/,
     ],
     [
+      'a BOM line whose child item is missing',
+      (s: AppState) => mutate(s, (r) => ((r.state as AppState).bomLines.find((l) => l.parentItemId === 'SA-820')!.childItemId = 'PT-404')),
+      /childItemId「PT-404」が存在しない品目を指しています/,
+    ],
+    [
+      'a BOM line whose parent item is missing',
+      (s: AppState) => mutate(s, (r) => ((r.state as AppState).bomLines.find((l) => l.parentItemId === 'SA-820')!.parentItemId = 'SA-404')),
+      /parentItemId「SA-404」が存在しない品目を指しています/,
+    ],
+    [
+      'an operation whose item is missing',
+      (s: AppState) => mutate(s, (r) => ((r.state as AppState).operations[0].itemId = 'FG-404')),
+      /operations\[0\]\.itemId「FG-404」が存在しない品目を指しています/,
+    ],
+    [
       'a BOM line whose origin change is missing',
       (s: AppState) => mutate(s, (r) => ((r.state as AppState).bomLines.find((l) => l.changeId)!.changeId = 'ECR-404')),
       /\.changeId が存在しない変更を指しています/,
@@ -148,6 +163,13 @@ describe('serializeState / parseSavedState', () => {
     ['a broken sync session', (s: AppState) => mutate(s, (r) => ((r.state as { syncSession: { touchedBomKeys: unknown } }).syncSession.touchedBomKeys = {})), /syncSession の記録が不正です/],
   ])('rejects %s with a reason', (_name, build, reason) => {
     expect(() => parseSavedState(build(richState()))).toThrow(reason);
+  });
+
+  it('accepts BOM lines to and from an E-BOM-only group, which is not in the item master', () => {
+    const state = createWoodenChairDemoState();
+    expect(state.items.some((i) => i.itemId === 'EU-450')).toBe(false);
+    expect(state.bomLines.filter((l) => l.parentItemId === 'EU-450' || l.childItemId === 'EU-450').length).toBeGreaterThan(0);
+    expect(() => parseSavedState(savedJson(state))).not.toThrow();
   });
 
   it('accepts unknown keys inside rows (only the top level is strict)', () => {
