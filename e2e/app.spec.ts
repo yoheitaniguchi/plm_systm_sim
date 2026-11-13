@@ -526,21 +526,22 @@ test.describe('theme (PLM-EXT-26)', () => {
     await page.emulateMedia({ colorScheme: 'light' });
     await expect(html).toHaveAttribute('data-theme', 'light');
 
-    await page.getByLabel('表示：').selectOption('dark');
+    const themes = page.getByRole('group', { name: '表示テーマ' });
+    await themes.getByRole('button', { name: 'ダーク' }).click();
     await expect(html).toHaveAttribute('data-theme', 'dark');
     // 保存をオフにしてもテーマは残る（所有者決定：連動させない）
     await page.getByLabel('このブラウザに保存する').uncheck();
     await page.reload();
     await expect(html).toHaveAttribute('data-theme', 'dark');
     await page.getByRole('button', { name: 'スキップ' }).click();
-    await expect(page.getByLabel('表示：')).toHaveValue('dark');
+    await expect(themes.getByRole('button', { name: 'ダーク' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   for (const theme of ['light', 'dark'] as const) {
     test(`every tab has no serious axe violations in the ${theme} theme`, async ({ page }) => {
       await page.goto('/');
       await page.getByRole('button', { name: 'スキップ' }).click();
-      await page.getByLabel('表示：').selectOption(theme);
+      await page.getByRole('group', { name: '表示テーマ' }).getByRole('button', { name: theme === 'light' ? 'ライト' : 'ダーク' }).click();
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       // バッジ・強調表示が出る画面も検査に入るよう、木製イスの M-BOM を作っておく
       await page.getByRole('navigation', { name: 'ドメインタブ' }).getByRole('button', { name: 'M-BOM' }).click();

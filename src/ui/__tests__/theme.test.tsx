@@ -68,11 +68,12 @@ describe('ThemeSwitcher', () => {
   it('選んだテーマを <html data-theme> に当てて保存する', () => {
     const storage = memoryStorage();
     render(<ThemeSwitcher storage={storage} />);
-    const select = screen.getByLabelText('表示：');
-    expect(select).toHaveValue('system');
+    expect(screen.getByRole('button', { name: 'OSに合わせる' })).toHaveAttribute('aria-pressed', 'true');
     expect(document.documentElement.dataset.theme).toBe('light'); // jsdom には OS のダーク設定が無い
 
-    fireEvent.change(select, { target: { value: 'dark' } });
+    fireEvent.click(screen.getByRole('button', { name: 'ダーク' }));
+    expect(screen.getByRole('button', { name: 'ダーク' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'OSに合わせる' })).toHaveAttribute('aria-pressed', 'false');
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(storage.data.get(THEME_KEY)).toBe('dark');
   });
@@ -85,7 +86,7 @@ describe('ThemeSwitcher', () => {
     act(() => {
       window.dispatchEvent(new StorageEvent('storage', { key: THEME_KEY, newValue: 'light' }));
     });
-    expect(screen.getByLabelText('表示：')).toHaveValue('light');
+    expect(screen.getByRole('button', { name: 'ライト' })).toHaveAttribute('aria-pressed', 'true');
     expect(document.documentElement.dataset.theme).toBe('light');
   });
 });

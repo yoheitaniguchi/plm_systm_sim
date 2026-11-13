@@ -45,23 +45,26 @@ export function ThemeSwitcher({ storage }: { storage: KeyValueStorage | null }) 
     document.documentElement.dataset.theme = resolved;
   }, [resolved]);
 
+  const choose = (next: ThemePreference) => {
+    setPreference(next);
+    writeThemePreference(storage, next);
+  };
+
+  // 3つ並びのボタン。押されているものを aria-pressed で示す（所有者の要望：ボタンで切り替える）
   return (
-    <label className="theme-switcher">
-      表示：
-      <select
-        value={preference}
-        onChange={(e) => {
-          const next = parseThemePreference(e.target.value);
-          setPreference(next);
-          writeThemePreference(storage, next);
-        }}
-      >
-        {THEME_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="theme-switcher" role="group" aria-label="表示テーマ">
+      <span aria-hidden="true">表示：</span>
+      {THEME_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={`theme-switcher__button${preference === option.value ? ' theme-switcher__button--active' : ''}`}
+          aria-pressed={preference === option.value}
+          onClick={() => choose(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
