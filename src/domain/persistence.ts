@@ -28,21 +28,28 @@ type SavedSyncSession = Omit<SyncSession, 'touchedItemIds' | 'touchedBomKeys' | 
   touchedRoutingItemIds: string[];
 };
 
-const PERSISTED_KEYS = [
-  'currentDay',
-  'items',
-  'bomLines',
-  'changes',
-  'documents',
-  'configurations',
-  'operations',
-  'operationResources',
-  'passthrough',
-  'alternateOverrides',
-  'syncSession',
-  'syncEvents',
-  'idCounter',
-] as const satisfies readonly (keyof SavedState)[];
+// 保存する項目と保存しない項目を、AppState の全項目について型で網羅させる。
+// AppState に項目を足すと、ここに足すまで型エラーになる（保存漏れを防ぐ）
+const STATE_FIELDS: Record<keyof AppState, 'persisted' | 'transient'> = {
+  currentDay: 'persisted',
+  items: 'persisted',
+  bomLines: 'persisted',
+  changes: 'persisted',
+  documents: 'persisted',
+  configurations: 'persisted',
+  operations: 'persisted',
+  operationResources: 'persisted',
+  passthrough: 'persisted',
+  alternateOverrides: 'persisted',
+  syncSession: 'persisted',
+  syncEvents: 'persisted',
+  idCounter: 'persisted',
+  lastError: 'transient',
+  lastWarning: 'transient',
+  exportPreflight: 'transient',
+  pendingCurrentSnapshot: 'transient',
+};
+const PERSISTED_KEYS = (Object.keys(STATE_FIELDS) as (keyof AppState)[]).filter((k) => STATE_FIELDS[k] === 'persisted');
 
 export function toSavedState(state: AppState): SavedState {
   const saved = {} as Record<string, unknown>;
@@ -70,6 +77,20 @@ const isString = (v: unknown): v is string => typeof v === 'string' && v.length 
 const isDay = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
+const optional = (check: (v: unknown) => boolean) => (v: unknown) => v === undefined || check(v);
+const stringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+const BOM_LINE_FIELDS: Record<string, (v: unknown) => boolean> = {
+  bomLineId: isString,
+  parentItemId: isString,
+  childItemId: isString,
+  qtyPer: isNumber,
+  bomType: (v) => v === 'E' || v === 'M',
+  version: isNumber,
+  effectiveFromDay: isDay,
+  effectiveToDay: optional(isDay),
+};
+
 function fail(message: string): never {
   throw new PersistenceError(message);
 }
@@ -88,8 +109,6 @@ function requireFields(table: string, rowsOf: Record<string, unknown>[], checks:
   });
 }
 
-const optional = (check: (v: unknown) => boolean) => (v: unknown) => v === undefined || check(v);
-const stringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
 function uniqueIds(table: string, rowsOf: Record<string, unknown>[], field: string) {
   const seen = new Set<unknown>();
@@ -126,16 +145,7 @@ export function parseSavedState(json: string): AppState {
   uniqueIds('items', items, 'itemId');
 
   const bomLines = rows(raw, 'bomLines');
-  requireFields('bomLines', bomLines, {
-    bomLineId: isString,
-    parentItemId: isString,
-    childItemId: isString,
-    qtyPer: isNumber,
-    bomType: (v) => v === 'E' || v === 'M',
-    version: isNumber,
-    effectiveFromDay: isDay,
-    effectiveToDay: optional(isDay),
-  });
+  requireFields('bomLines', bomLines, BOM_LINE_FIELDS);
   uniqueIds('bomLines', bomLines, 'bomLineId');
 
   const changes = rows(raw, 'changes');
@@ -145,12 +155,23 @@ export function parseSavedState(json: string): AppState {
     status: isString,
     impactedItemIds: stringArray,
     impactedBomLineIds: stringArray,
-    approvals: Array.isArray,
+    approvals: (v) => Array.isArray(v) && v.every((a) => isObject(a) && isString(a.approverRole) && isString(a.decision)),
+    requiredApproverRoles: optional(stringArray),
   });
   uniqueIds('changes', changes, 'changeId');
+  // 起票時点のM-BOM（PLM-EXT-14）。原価影響の計算で再帰的に辿るので、行の型と循環も見る
+  changes.forEach((c, i) => {
+    if (c.beforeBomLines === undefined) return;
+    const before = rows(c, 'beforeBomLines');
+    requireFields(`changes[${i}].beforeBomLines`, before, BOM_LINE_FIELDS);
+    const cycles = detectBomCycles(before as unknown as Parameters<typeof detectBomCycles>[0]);
+    if (cycles.length > 0) fail(`changes[${i}].beforeBomLines：${cycles[0]}`);
+  });
 
   requireFields('documents', rows(raw, 'documents'), { docId: isString, version: isNumber, relatedItemId: isString });
-  requireFields('configurations', rows(raw, 'configurations'), { configId: isString, baseItemId: isString, resolvedItemId: isString, selections: isObject });
+  const configurations = rows(raw, 'configurations');
+  requireFields('configurations', configurations, { configId: isString, baseItemId: isString, resolvedItemId: isString, selections: isObject });
+  uniqueIds('configurations', configurations, 'configId');
 
   const operations = rows(raw, 'operations');
   requireFields('operations', operations, {
@@ -169,8 +190,11 @@ export function parseSavedState(json: string): AppState {
 
   const resources = rows(raw, 'operationResources');
   requireFields('operationResources', resources, { resourceId: isString, itemId: isString, opCode: isString, kind: isString, code: isString, name: isString });
+  uniqueIds('operationResources', resources, 'resourceId');
 
-  requireFields('syncEvents', rows(raw, 'syncEvents'), { eventId: isString, status: isString, exportedAtDay: isDay });
+  const syncEvents = rows(raw, 'syncEvents');
+  requireFields('syncEvents', syncEvents, { eventId: isString, status: isString, exportedAtDay: isDay, sourceChangeId: optional(isString) });
+  uniqueIds('syncEvents', syncEvents, 'eventId');
 
   const passthrough = raw.passthrough;
   if (!isObject(passthrough)) fail('passthrough が不正です');
@@ -192,9 +216,11 @@ export function parseSavedState(json: string): AppState {
     }
   });
 
-  // BOM の循環（三重防御の②と同じ考え方）。現行の行だけを、E-BOM・M-BOM別に調べる
+  // BOM の循環（三重防御の②と同じ考え方）。今日以降に有効な行（終了していない行・終了予定の行）を、
+  // E-BOM・M-BOM別に調べる
+  const today = raw.currentDay;
   for (const bomType of ['E', 'M']) {
-    const current = bomLines.filter((l) => l.bomType === bomType && l.effectiveToDay === undefined);
+    const current = bomLines.filter((l) => l.bomType === bomType && (l.effectiveToDay === undefined || (l.effectiveToDay as number) > today));
     const cycles = detectBomCycles(current as unknown as Parameters<typeof detectBomCycles>[0]);
     if (cycles.length > 0) fail(`${bomType}-BOM：${cycles[0]}`);
   }

@@ -57,16 +57,20 @@ export function whereUsed(
 
 // 7.7: 原価影響の簡易算出。購入部品費用（purchasePrice）の積み上げのみを対象とする。
 // 内製品目（MAKE）の加工費（作業区の賃率×標準時間）は含まない簡易版。
-export function computeRolledUpCost(itemId: string, bomLines: PlmBomLine[], items: PlmItem[]): number {
+// 循環した BOM（保存データ・記録済みスナップショット由来）でも止まるよう、辿っている途中の品目は数えない（三重防御の③）
+export function computeRolledUpCost(
+  itemId: string,
+  bomLines: PlmBomLine[],
+  items: PlmItem[],
+  ancestors: ReadonlySet<string> = new Set(),
+): number {
   const item = items.find((i) => i.itemId === itemId);
-  if (!item) return 0;
+  if (!item || ancestors.has(itemId) || ancestors.size > MAX_BOM_DEPTH) return 0;
   if (item.makeBuy === 'BUY') return item.purchasePrice ?? 0;
 
+  const path = new Set(ancestors).add(itemId);
   const children = bomLines.filter((l) => l.parentItemId === itemId);
-  return children.reduce(
-    (sum, l) => sum + l.qtyPer * computeRolledUpCost(l.childItemId, bomLines, items),
-    0,
-  );
+  return children.reduce((sum, l) => sum + l.qtyPer * computeRolledUpCost(l.childItemId, bomLines, items, path), 0);
   // 注：MAKE品目の加工費は含まない簡易版。将来的に精度を上げる場合は
   // routingSteps（工程）× workCenters.ratePerHour（賃率）で加工費を積み上げる拡張が可能。
 }

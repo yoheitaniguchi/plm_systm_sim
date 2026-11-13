@@ -98,9 +98,43 @@ describe('serializeState / parseSavedState', () => {
       /存在しない工程を指しています/,
     ],
     [
-      'a BOM line pointing to a missing change',
-      (s: AppState) => mutate(s, (r) => (r.state as AppState).changes.splice(0, 1)),
-      /ChangeId が存在しない変更を指しています/,
+      'a BOM line whose origin change is missing',
+      (s: AppState) => mutate(s, (r) => ((r.state as AppState).bomLines.find((l) => l.changeId)!.changeId = 'ECR-404')),
+      /\.changeId が存在しない変更を指しています/,
+    ],
+    [
+      'a BOM line whose end change is missing',
+      (s: AppState) => mutate(s, (r) => ((r.state as AppState).bomLines.find((l) => l.endChangeId)!.endChangeId = 'ECR-404')),
+      /\.endChangeId が存在しない変更を指しています/,
+    ],
+    [
+      'a cycle in the M-BOM recorded when a change was raised',
+      (s: AppState) =>
+        mutate(s, (r) => {
+          const line = (r.state as AppState).bomLines[0];
+          (r.state as AppState).changes[0].beforeBomLines = [
+            { ...line, bomLineId: 'B1', bomType: 'M', parentItemId: 'X', childItemId: 'Y' },
+            { ...line, bomLineId: 'B2', bomType: 'M', parentItemId: 'Y', childItemId: 'X' },
+          ];
+        }),
+      /changes\[0\]\.beforeBomLines：循環参照を検出しました/,
+    ],
+    ['a malformed approval', (s: AppState) => mutate(s, (r) => ((r.state as AppState).changes[0].approvals = [null as never])), /changes\[0\]\.approvals が不正です/],
+    [
+      'a duplicate resource id',
+      (s: AppState) => mutate(s, (r) => (r.state as AppState).operationResources.push((r.state as AppState).operationResources[0])),
+      /resourceId「.+」が重複しています/,
+    ],
+    [
+      'a cycle through a line that ends in the future',
+      (s: AppState) =>
+        mutate(s, (r) => {
+          const st = r.state as AppState;
+          const line = st.bomLines.find((l) => l.bomType === 'E' && l.effectiveToDay === undefined && l.parentItemId === 'SA-820')!;
+          line.effectiveToDay = st.currentDay + 9;
+          st.bomLines.push({ ...line, bomLineId: 'CYCLE', parentItemId: line.childItemId, childItemId: 'SA-820', effectiveToDay: undefined });
+        }),
+      /E-BOM：循環参照を検出しました/,
     ],
     [
       'a BOM cycle',
