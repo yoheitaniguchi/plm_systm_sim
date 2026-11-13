@@ -9,9 +9,11 @@ test.describe('onboarding (UC-UI-1/3)', () => {
 
     await page.getByRole('button', { name: 'スキップ' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    // スキップ後は自由探索モードに戻り、以降ガイドは自動表示されない
+    // スキップ後は自由探索モードに戻り、以降ガイドは自動表示されない。
+    // 状態は保存される（既定はオン）ので、リロードしても保存から再開し、ガイドは出ない（PLM-EXT-25）
     await page.reload();
-    await expect(page.getByRole('dialog', { name: '木製イスのE-BOM構造ツアー' })).toBeVisible();
+    await expect(page.getByText('このブラウザに保存中')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: '木製イスのE-BOM構造ツアー' })).toHaveCount(0);
   });
 
   test('walks through all 5 steps, converts to M-BOM, and lands on 変更管理', async ({ page }) => {
@@ -382,5 +384,87 @@ test.describe('item revisions (PLM-EXT-21〜23)', () => {
     await expect(staleWarning).toBeVisible();
     const finalScan = await new AxeBuilder({ page }).analyze();
     expect(finalScan.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
+  });
+});
+
+test.describe('persistence (PLM-EXT-24・25)', () => {
+  const clock = (page: import('@playwright/test').Page) => page.getByText(/現在日：/);
+
+  test('restores the saved state after a reload, without the tour', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await page.getByRole('button', { name: '次の日へ進む' }).click();
+    await expect(clock(page)).toContainText('D1');
+    await expect(page.getByText(/このブラウザに保存中（最終/)).toBeVisible();
+    await page.reload();
+    await expect(clock(page)).toContainText('D1');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  test('saves the last change when the page is closed during the save delay', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await page.getByRole('button', { name: '次の日へ進む' }).click();
+    // 0.5秒のまとめを待たずにリロードしても、pagehide で書き出される
+    await page.reload();
+    await expect(clock(page)).toContainText('D1');
+  });
+
+  test('turning saving off deletes the saved data and starts from the sample after a reload', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await page.getByRole('button', { name: '次の日へ進む' }).click();
+    await expect(page.getByText(/このブラウザに保存中（最終/)).toBeVisible();
+    await page.getByLabel('このブラウザに保存する').uncheck();
+    await expect(page.getByText('保存しない（リロードで消えます）')).toBeVisible();
+    await page.reload();
+    await expect(clock(page)).toContainText('D0');
+    await expect(page.getByRole('dialog', { name: '木製イスのE-BOM構造ツアー' })).toBeVisible();
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await expect(page.getByLabel('このブラウザに保存する')).not.toBeChecked();
+  });
+
+  test('restarts from the sample after confirming', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await page.getByRole('button', { name: '次の日へ進む' }).click();
+    await expect(page.getByText(/このブラウザに保存中（最終/)).toBeVisible();
+    await page.getByRole('button', { name: '保存を消してサンプルで始め直す' }).click();
+    await page.getByRole('button', { name: '消して始め直す' }).click();
+    await expect(page.getByRole('dialog', { name: '木製イスのE-BOM構造ツアー' })).toBeVisible();
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await expect(clock(page)).toContainText('D0');
+  });
+
+  test('starts from the sample with the reason when the saved data is broken, and keeps it aside', async ({ page }) => {
+    // 起動前に壊れたデータを置く（このテストのページを開く1回だけ）
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem('seeded')) {
+        sessionStorage.setItem('seeded', '1');
+        localStorage.setItem('plm-systm-sim:state', '{"kind":"something-else","version":1,"state":{}}');
+      }
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    const alert = page.getByRole('alert').filter({ hasText: '保存したデータを読み込めなかった' });
+    await expect(alert).toContainText('種類が違います');
+    await expect(clock(page)).toContainText('D0');
+    expect(await page.evaluate(() => localStorage.getItem('plm-systm-sim:broken'))).toContain('something-else');
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
+    await alert.getByRole('button', { name: '退避したデータを捨てる' }).click();
+    await expect(alert.getByRole('button', { name: '退避したデータを書き出す' })).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem('plm-systm-sim:broken'))).toBeNull();
+  });
+
+  test('warns when another tab saves', async ({ context }) => {
+    const first = await context.newPage();
+    await first.goto('/');
+    await first.getByRole('button', { name: 'スキップ' }).click();
+    const second = await context.newPage();
+    await second.goto('/');
+    await second.getByRole('button', { name: 'スキップ' }).click();
+    await second.getByRole('button', { name: '次の日へ進む' }).click();
+    await expect(first.getByRole('alert').filter({ hasText: '別のタブでこのシミュレーターの状態が保存されました' })).toBeVisible();
   });
 });

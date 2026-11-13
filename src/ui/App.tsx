@@ -1,7 +1,10 @@
 import { useReducer, useState } from 'react';
+import { loadSavedState, readSettings, type BootResult, type KeyValueStorage } from '../domain/persistence';
 import { createWoodenChairDemoState } from '../domain/presets';
 import { reducer } from '../domain/reducer';
 import { Banner } from './components/Banner';
+import { PersistenceMenu, PersistenceNotices } from './components/PersistenceControls';
+import { browserStorage, usePersistence } from './usePersistence';
 import { Onboarding } from './Onboarding';
 import { ChangeManagementTab } from './tabs/ChangeManagementTab';
 import { DocumentTab } from './tabs/DocumentTab';
@@ -31,10 +34,26 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'planning', label: '計画BOM' },
 ];
 
+// 起動時に一度だけ保存データを読む。読めなければサンプル（木製イス）で起動する（PLM-EXT-24・25）。
+// 読み込みは壊れたデータの退避という副作用を伴うので、StrictMode の二重呼び出しでも1回だけにする
+let bootResult: { storage: KeyValueStorage | null; result: BootResult; enabled: boolean } | null = null;
+function bootOnce() {
+  if (!bootResult) {
+    const storage = browserStorage();
+    bootResult = { storage, result: loadSavedState(storage), enabled: readSettings(storage).enabled };
+  }
+  return bootResult;
+}
+
 export function App() {
-  const [state, dispatch] = useReducer(reducer, undefined, createWoodenChairDemoState);
+  const [boot] = useState(bootOnce);
+  const [state, dispatch] = useReducer(reducer, undefined, () =>
+    boot.result.kind === 'restored' ? boot.result.state : createWoodenChairDemoState(),
+  );
+  const persistence = usePersistence(boot.storage, state, boot.enabled);
   const [activeTab, setActiveTab] = useState<TabKey>('item');
-  const [showOnboarding, setShowOnboarding] = useState(true);
+  // オンボーディングは保存データから再開したときは出さない（所有者決定 Q3）
+  const [showOnboarding, setShowOnboarding] = useState(boot.result.kind !== 'restored');
   const [showEcrGuide, setShowEcrGuide] = useState(true);
   const [prefillImpactedItemIds, setPrefillImpactedItemIds] = useState<string[] | null>(null);
 
@@ -56,7 +75,10 @@ export function App() {
           </button>
           <span className="app-header__subtitle">日付だけが進みます。BOM行・工程の改訂は、前の版より後の日に行えます。</span>
         </div>
+        <PersistenceMenu persistence={persistence} />
       </header>
+
+      <PersistenceNotices boot={boot.result} storage={boot.storage} persistence={persistence} />
 
       {state.lastError && <Banner kind="error" message={state.lastError} />}
       {state.lastWarning && <Banner kind="warning" message={state.lastWarning} />}

@@ -435,3 +435,26 @@ button {
   gap: 0.75rem;
   margin-top: 0.5rem;
 }
+
+/* 保存メニュー（PLM-EXT-25） */
+.app-header__persistence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.app-header__confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
