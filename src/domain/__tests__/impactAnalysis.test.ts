@@ -245,3 +245,17 @@ describe('assertMbomConverted (発注BOM・計画BOM共通の前提チェック)
     expect(() => assertMbomConverted('PT-400', woodenChairMbom())).not.toThrow();
   });
 });
+
+describe('computeRolledUpCost with a cyclic BOM (X4 ロジックレビュー)', () => {
+  it('stops at an item already on the path instead of recursing forever', () => {
+    const items = [
+      { itemId: 'A', name: 'A', makeBuy: 'MAKE', leadTimeDays: 1, lifecycleStatus: '量産' },
+      { itemId: 'B', name: 'B', makeBuy: 'MAKE', leadTimeDays: 1, lifecycleStatus: '量産' },
+      { itemId: 'P', name: 'P', makeBuy: 'BUY', leadTimeDays: 1, purchasePrice: 100, lifecycleStatus: '量産' },
+    ] as PlmItem[];
+    const line = (id: string, parentItemId: string, childItemId: string, qtyPer = 1) =>
+      ({ bomLineId: id, parentItemId, childItemId, qtyPer, bomType: 'M', version: 1, effectiveFromDay: 0 }) as PlmBomLine;
+    const bom = [line('1', 'A', 'B'), line('2', 'B', 'A'), line('3', 'B', 'P', 2)];
+    expect(computeRolledUpCost('A', bom, items)).toBe(200);
+  });
+});
