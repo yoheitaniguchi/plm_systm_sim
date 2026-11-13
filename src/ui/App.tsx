@@ -1,5 +1,5 @@
 import { useReducer, useState } from 'react';
-import { loadSavedState, readSettings, type BootResult, type KeyValueStorage } from '../domain/persistence';
+import { loadSavedState, readSavedJson, readSettings, savedAtOf, type BootResult, type KeyValueStorage } from '../domain/persistence';
 import { createWoodenChairDemoState } from '../domain/presets';
 import { reducer } from '../domain/reducer';
 import { Banner } from './components/Banner';
@@ -36,11 +36,14 @@ const TABS: { key: TabKey; label: string }[] = [
 
 // 起動時に一度だけ保存データを読む。読めなければサンプル（木製イス）で起動する（PLM-EXT-24・25）。
 // 読み込みは壊れたデータの退避という副作用を伴うので、StrictMode の二重呼び出しでも1回だけにする
-let bootResult: { storage: KeyValueStorage | null; result: BootResult; enabled: boolean } | null = null;
+let bootResult: { storage: KeyValueStorage | null; result: BootResult; enabled: boolean; savedAt: string | null } | null = null;
 function bootOnce() {
   if (!bootResult) {
     const storage = browserStorage();
-    bootResult = { storage, result: loadSavedState(storage), enabled: readSettings(storage).enabled };
+    const result = loadSavedState(storage);
+    // 復元したときは、その保存の時刻を最初から表示する
+    const savedAt = result.kind === 'restored' ? savedAtOf(readSavedJson(storage)) : null;
+    bootResult = { storage, result, enabled: readSettings(storage).enabled, savedAt };
   }
   return bootResult;
 }
@@ -50,7 +53,7 @@ export function App() {
   const [state, dispatch] = useReducer(reducer, undefined, () =>
     boot.result.kind === 'restored' ? boot.result.state : createWoodenChairDemoState(),
   );
-  const persistence = usePersistence(boot.storage, state, boot.enabled);
+  const persistence = usePersistence(boot.storage, state, boot.enabled, boot.savedAt);
   const [activeTab, setActiveTab] = useState<TabKey>('item');
   // オンボーディングは保存データから再開したときは出さない（所有者決定 Q3）。
   // 保存データを読めなかったときも、理由のお知らせがツアーの下に隠れないよう出さない

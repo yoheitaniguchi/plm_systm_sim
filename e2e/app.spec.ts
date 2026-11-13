@@ -389,15 +389,30 @@ test.describe('item revisions (PLM-EXT-21〜23)', () => {
 test.describe('persistence (PLM-EXT-24・25)', () => {
   const clock = (page: import('@playwright/test').Page) => page.getByText(/現在日：/);
 
-  test('restores the saved state after a reload, without the tour', async ({ page }) => {
+  test('restores a replaced E-BOM line after a reload, without the tour (design §6)', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: 'スキップ' }).click();
-    await page.getByRole('button', { name: '次の日へ進む' }).click();
-    await expect(clock(page)).toContainText('D1');
+    await page.getByRole('button', { name: '連携', exact: true }).click();
+    await page.getByRole('button', { name: 'コンベア装置のサンプルを読み込む（共通部品あり）' }).click();
+    await page.getByRole('button', { name: 'インポートする' }).click();
+    await page.getByRole('button', { name: 'E-BOM', exact: true }).click();
+    await page.getByRole('button', { name: '日を進める（D1へ）' }).click();
+    await page.getByRole('button', { name: 'SA-820 → PT-850 の子品目を置換' }).click();
+    await page.getByRole('form', { name: /子品目を置換/ }).getByRole('combobox').nth(0).selectOption('PT-870');
+    await page.getByRole('button', { name: 'D1 から置き換える' }).click();
+    await expect(page.getByRole('button', { name: 'SA-820 → PT-870 の子品目を置換' })).toBeVisible();
     await expect(page.getByText(/このブラウザに保存中（最終/)).toBeVisible();
+
     await page.reload();
-    await expect(clock(page)).toContainText('D1');
     await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(clock(page)).toContainText('D1');
+    // 復元した直後から、最終保存の時刻が出る
+    await expect(page.getByText(/このブラウザに保存中（最終/)).toBeVisible();
+    await page.getByRole('button', { name: 'E-BOM', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'SA-820 → PT-870 の子品目を置換' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'SA-820 → PT-850 の子品目を置換' })).toHaveCount(0);
+    await page.getByLabel('リビジョンを見る品目').selectOption('SA-820');
+    await expect(page.getByRole('table', { name: 'リビジョン履歴' }).getByRole('row')).toHaveCount(3);
   });
 
   test('saves the last change when the page is closed during the save delay', async ({ page }) => {

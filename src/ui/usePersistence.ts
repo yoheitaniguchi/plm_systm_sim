@@ -40,9 +40,14 @@ export interface Persistence {
   reloadFromOtherTab: () => void; // このタブの未保存分を書かずに再読み込み（別のタブの内容を読む）
 }
 
-export function usePersistence(storage: KeyValueStorage | null, state: AppState, initiallyEnabled: boolean): Persistence {
+export function usePersistence(
+  storage: KeyValueStorage | null,
+  state: AppState,
+  initiallyEnabled: boolean,
+  restoredSavedAt: string | null = null,
+): Persistence {
   const [enabled, setEnabledState] = useState(initiallyEnabled && storage !== null);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(restoredSavedAt);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [otherTabSaved, setOtherTabSaved] = useState(false);
   const [turnedOffByOtherTab, setTurnedOffByOtherTab] = useState(false);

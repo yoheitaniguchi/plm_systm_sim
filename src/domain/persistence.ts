@@ -374,7 +374,15 @@ export function discardBrokenData(storage: KeyValueStorage): void {
   }
 }
 
-// 保存データの savedAt（別のタブで保存されたことの表示に使う）
+export function readSavedJson(storage: KeyValueStorage | null): string | null {
+  try {
+    return storage?.getItem(STATE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// 保存データの savedAt（復元したときに最終保存の時刻を最初から表示する）
 export function savedAtOf(json: string | null): string | null {
   if (!json) return null;
   try {
