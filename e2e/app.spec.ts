@@ -370,9 +370,16 @@ test.describe('item revisions (PLM-EXT-21〜23)', () => {
     await page.getByLabel('リビジョンを見る品目').selectOption('FG-800');
     await expect(history.getByRole('row')).toHaveCount(2);
 
-    // 行を終了すると、M-BOMタブに未反映の警告が出る
+    // M-BOMへ変換した後でE-BOM行を終了すると、M-BOMタブに未反映の警告が出る
+    await page.getByRole('button', { name: 'M-BOM', exact: true }).click();
+    await page.getByRole('button', { name: 'M-BOMに変換' }).click();
+    const staleWarning = page.getByText(/SA-820 → PT-860）の元のE-BOM行は終了しています/);
+    await expect(staleWarning).toHaveCount(0);
+    await page.getByRole('button', { name: 'E-BOM', exact: true }).click();
     await page.getByRole('button', { name: 'SA-820 → PT-860 を終了' }).click();
     await page.getByRole('button', { name: 'D1 で終了する' }).click();
+    await page.getByRole('button', { name: 'M-BOM', exact: true }).click();
+    await expect(staleWarning).toBeVisible();
     const finalScan = await new AxeBuilder({ page }).analyze();
     expect(finalScan.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
   });

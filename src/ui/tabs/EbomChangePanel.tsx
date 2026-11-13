@@ -3,6 +3,7 @@ import {
   currentEbomLines,
   ebomLineBlockers,
   wouldCreateCycle,
+  wouldDuplicateOnReplace,
 } from "../../domain/ebom";
 import type { AppAction, AppState } from "../../domain/reducer";
 import {
@@ -311,16 +312,12 @@ export function EbomChangePanel({ state, dispatch }: EbomChangePanelProps) {
                   <option value="" disabled>
                     選択してください
                   </option>
-                  {/* 確実に拒否される候補（同じ親が既に持つ子・循環になる品目）は出さない */}
+                  {/* 確実に拒否される候補（E-BOM限定グループを畳んだ後の親が既に持つ子・循環になる品目。判定はドメインと共有）は出さない */}
                   {state.items
                     .filter(
                       (i) =>
                         i.itemId !== editingLine.childItemId &&
-                        !lines.some(
-                          (l) =>
-                            l.parentItemId === editingLine.parentItemId &&
-                            l.childItemId === i.itemId,
-                        ) &&
+                        !wouldDuplicateOnReplace(lines, editingLine, i.itemId) &&
                         !wouldCreateCycle(
                           state.bomLines,
                           "E",
