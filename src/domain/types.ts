@@ -100,6 +100,10 @@ export interface PlmBomLine extends BomLine {
   alternateGroupId?: string; // このBOM行が属する代替部品グループ（4.5）
   alternatePriority?: number; // 代替部品グループ内の優先順位（小さいほど優先）
   approvalStatus?: '承認済' | '評価中' | '却下'; // 代替部品として選択可能かどうか（承認済のみ選択可）
+  // E-BOMのみ：この行を作った変更の由来（EngineeringChange.changeId）。任意で、記録するだけ（PLM-EXT-21）。
+  // 行を終了した変更の由来は endChangeId に記録する。どちらもPLM独自で、書き出さない
+  changeId?: string;
+  endChangeId?: string;
 }
 
 // ---------- 工程（BOP、PLM-EXT-17） ----------

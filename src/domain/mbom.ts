@@ -27,8 +27,12 @@ export function convertEbomToMbom(
 
     if (isEbomOnlyGroup(line.childItemId, ebomLines)) continue; // グループ自体はM-BOMに出さない
 
+    // 由来の変更（changeId・endChangeId）はE-BOM行の記録で、M-BOM行には持ち込まない（PLM-EXT-21）
+    const { changeId: _changeId, endChangeId: _endChangeId, ...rest } = line;
+    void _changeId;
+    void _endChangeId;
     result.push({
-      ...line,
+      ...rest,
       bomLineId: `M-${line.bomLineId}`,
       bomType: 'M',
       parentItemId: effectiveParentId,
@@ -136,6 +140,15 @@ export function currentMbomLines(bomLines: PlmBomLine[]): PlmBomLine[] {
   return bomLines.filter((l) => l.bomType === 'M' && l.effectiveToDay === undefined);
 }
 
+// M-BOM行の元になったE-BOM行のID。変換は行IDを`M-${E-BOM行のID}`とし、バリアント構成を指定した変換では
+// 末尾に`-${確定品目コード}`（＝mbomScope）を付ける。これまで末尾を外さずに比べていたため、構成を指定して
+// 変換した行はすべて「未反映」と誤って警告されていた
+function sourceEbomLineId(line: PlmBomLine): string {
+  const id = line.bomLineId.replace(/^M-/, '');
+  const suffix = line.mbomScope ? `-${line.mbomScope}` : '';
+  return suffix && id.endsWith(suffix) ? id.slice(0, -suffix.length) : id;
+}
+
 // UC-MBOM-3: E-BOM側が改訂され、まだM-BOM変換が実行されていない行を検出する。
 // convertEbomToMbomはM-BOM行のbomLineIdを`M-${元のE-BOM行のbomLineId}`とするため、
 // 現在有効なE-BOM行のうち対応するM-BOM行が存在しないものを「未反映」とみなす。
@@ -143,14 +156,24 @@ export function checkMbomStaleness(ebomLines: PlmBomLine[], mbomLines: PlmBomLin
   const currentE = ebomLines.filter(
     (l) => l.bomType === 'E' && l.effectiveToDay === undefined && !l.optionGroupId,
   );
-  const mbomSourceIds = new Set(
-    mbomLines.filter((l) => l.bomType === 'M').map((l) => l.bomLineId.replace(/^M-/, '')),
-  );
+  const mbomSourceIds = new Set(mbomLines.filter((l) => l.bomType === 'M').map(sourceEbomLineId));
   const warnings: string[] = [];
   for (const line of currentE) {
     if (isEbomOnlyGroup(line.childItemId, ebomLines)) continue; // グループ自体は対象外
     if (!mbomSourceIds.has(line.bomLineId)) {
       warnings.push(`E-BOM行 ${line.bomLineId}（${line.parentItemId} → ${line.childItemId}）がM-BOMへ未反映です`);
+    }
+  }
+  // E-BOM行の終了・置換（PLM-EXT-21）：元のE-BOM行が現行でなくなったのに、M-BOM行が現行のまま残っているもの
+  const currentEIds = new Set(
+    ebomLines.filter((l) => l.bomType === 'E' && l.effectiveToDay === undefined).map((l) => l.bomLineId),
+  );
+  for (const line of mbomLines) {
+    if (line.bomType !== 'M' || line.effectiveToDay !== undefined) continue;
+    if (!currentEIds.has(sourceEbomLineId(line))) {
+      warnings.push(
+        `M-BOM行 ${line.bomLineId}（${line.parentItemId} → ${line.childItemId}）の元のE-BOM行は終了しています（M-BOMへ未反映です）`,
+      );
     }
   }
   return warnings;
