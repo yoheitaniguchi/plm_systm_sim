@@ -204,3 +204,47 @@ describe('revisions through the reducer (conveyor)', () => {
     expect(deriveRevisions('FG-800', state.bomLines, state.currentDay).map((r) => r.rev)).toEqual(['A']);
   });
 });
+
+describe('boundary cases (logic review)', () => {
+  it('marks a revision created by a future end as 予定', () => {
+    const lines = driveLines();
+    endEbomLine(lines, 'E-4', 10);
+    const revs = deriveRevisions('SA-820', lines, 5);
+    expect(revs.map((r) => [r.rev, r.status])).toEqual([['A', '有効'], ['B', '予定']]);
+    expect(children(revs[1].lines)).toEqual(['PT-850×1', 'PT-860×2']);
+  });
+
+  it('keeps an empty revision between ending all children and adding one again', () => {
+    const lines = driveLines();
+    for (const id of ['E-2', 'E-3', 'E-4']) endEbomLine(lines, id, 3);
+    addEbomLine(lines, { bomLineId: 'E-9', parentItemId: 'SA-820', childItemId: 'PT-850', qtyPer: 1, effectiveFromDay: 6 });
+    const revs = deriveRevisions('SA-820', lines, 6);
+    expect(revs.map((r) => [r.rev, r.lines.length])).toEqual([['A', 3], ['B', 0], ['C', 1]]);
+  });
+
+  it('collects the endChangeId and the changeId of a same-day replacement into one revision', () => {
+    const lines = driveLines();
+    replaceEbomChild(lines, 'E-2', 'PT-851', 'E-9', 4, 'ECR-7');
+    const revs = deriveRevisions('SA-820', lines, 4);
+    expect(revs).toHaveLength(2);
+    expect(revs[1].changeIds).toEqual(['ECR-7']);
+  });
+
+  it('sums the quantities of lines sharing a key', () => {
+    const lines = driveLines();
+    addEbomLine(lines, { bomLineId: 'E-9', parentItemId: 'SA-820', childItemId: 'PT-890', qtyPer: 1, effectiveFromDay: 2 });
+    lines.push({ ...lines.find((l) => l.bomLineId === 'E-3')!, bomLineId: 'E-10', qtyPer: 3, effectiveFromDay: 2 });
+    const [a, b] = deriveRevisions('SA-820', lines, 2);
+    expect(diffRevisions(a, b)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: '数量変更', childItemId: 'PT-860', qtyBefore: 2, qtyAfter: 5 })]),
+    );
+  });
+
+  it('treats undefined fields of a revise patch as unspecified', () => {
+    const lines = driveLines();
+    lines[2].optionCode = 'X';
+    const v2 = reviseEbomLine(lines, 'E-3', { qtyPer: 3, optionCode: undefined }, 'E-9', 2);
+    expect(v2.optionCode).toBe('X');
+    expect(() => reviseEbomLine(lines, 'E-9', { optionCode: undefined }, 'E-10', 4)).toThrow(/今の内容と同じです/);
+  });
+});

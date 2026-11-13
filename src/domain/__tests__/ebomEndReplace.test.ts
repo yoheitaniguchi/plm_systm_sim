@@ -1,6 +1,6 @@
 // E-BOM行の終了・子品目の置換と、由来の変更の記録のテスト（design.md PLM-EXT-21）。
 import { describe, expect, it } from 'vitest';
-import { addEbomLine, currentEbomLines, endEbomLine, replaceEbomChild, reviseEbomLine } from '../ebom';
+import { addEbomLine, currentEbomLines, ebomLineBlockers, endEbomLine, replaceEbomChild, reviseEbomLine } from '../ebom';
 import { isEffectiveAsOf } from '../impactAnalysis';
 import { stripPlmOnlyBomFields } from '../masterSnapshot';
 import { checkMbomStaleness, currentMbomLines } from '../mbom';
@@ -284,5 +284,32 @@ describe('guards added to the existing revise, and M-BOM lines', () => {
     addEbomLine(lines, { bomLineId: 'E-1', parentItemId: 'SA-200', childItemId: 'RM-300', qtyPer: 1, effectiveFromDay: 0, optionGroupId: 'OG', optionCode: '無垢材' });
     addEbomLine(lines, { bomLineId: 'E-2', parentItemId: 'SA-200', childItemId: 'RM-301', qtyPer: 1, effectiveFromDay: 0, optionGroupId: 'OG', optionCode: '布張り' });
     expect(() => replaceEbomChild(lines, 'E-1', 'RM-301', 'E-3', 2)).not.toThrow();
+  });
+});
+
+describe('ebomLineBlockers (PLM-EXT-23)', () => {
+  it('tells the screen why a line cannot be changed today, ended or replaced', () => {
+    const state = createWoodenChairDemoState();
+    const line = (id: string) => state.bomLines.find((l) => l.bomLineId === id)!;
+    // D0に始まった行は、D0には変更できない
+    expect(ebomLineBlockers(state.bomLines, line('E-1'), 0).day).toMatch(/D1以降/);
+    expect(ebomLineBlockers(state.bomLines, line('E-1'), 1)).toEqual({});
+    // グループへの行は終了・置換とも不可、代替部品グループの行は置換不可
+    expect(ebomLineBlockers(state.bomLines, line('E-4'), 1)).toEqual({ end: 'E-BOM限定グループへの行', replace: 'E-BOM限定グループへの行' });
+    expect(ebomLineBlockers(state.bomLines, line('E-5'), 1)).toEqual({ replace: '代替部品グループの行' });
+    expect(ebomLineBlockers(state.bomLines, line('E-6'), 1)).toEqual({});
+    // グループの子が1つになると、その行は終了できない
+    endEbomLine(state.bomLines, 'E-5', 1);
+    endEbomLine(state.bomLines, 'E-7', 1);
+    expect(ebomLineBlockers(state.bomLines, line('E-6'), 1)).toEqual({ end: 'グループの最後の子' });
+  });
+});
+
+describe('reviseEbomLine (PLM-EXT-23)', () => {
+  it('rejects a revision that changes nothing, and leaves the line current', () => {
+    const lines = driveLines();
+    expect(() => reviseEbomLine(lines, 'E-3', { qtyPer: 2 }, 'E-9', 3)).toThrow(/今の内容と同じです/);
+    expect(lines.find((l) => l.bomLineId === 'E-3')?.effectiveToDay).toBeUndefined();
+    expect(lines).toHaveLength(3);
   });
 });

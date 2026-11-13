@@ -328,3 +328,52 @@ test.describe('routing 3-way merge (PLM-EXT-20)', () => {
     await expect(opTable.getByRole('row').filter({ hasText: '検査' })).toContainText('15');
   });
 });
+
+test.describe('item revisions (PLM-EXT-21〜23)', () => {
+  test('replaces a child on the E-BOM tab and shows the revision history and the difference', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'スキップ' }).click();
+    await page.getByRole('button', { name: '連携', exact: true }).click();
+    await page.getByRole('button', { name: 'コンベア装置のサンプルを読み込む（共通部品あり）' }).click();
+    await page.getByRole('button', { name: 'インポートする' }).click();
+
+    await page.getByRole('button', { name: 'E-BOM', exact: true }).click();
+    // 取り込んだ日（D0）に始まった行は、同じ日には変更できない。理由と日を進めるボタンが出る
+    const replaceMotor = page.getByRole('button', { name: 'SA-820 → PT-850 の子品目を置換' });
+    await expect(replaceMotor).toBeDisabled();
+    await page.getByRole('button', { name: '日を進める（D1へ）' }).click();
+    await expect(replaceMotor).toBeEnabled();
+
+    // 駆動部のモーターを、電装部品に置き換える
+    await replaceMotor.click();
+    const form = page.getByRole('form', { name: /子品目を置換/ });
+    await form.getByRole('combobox').nth(0).selectOption('PT-870');
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
+    await form.getByRole('button', { name: 'D1 から置き換える' }).click();
+    await expect(page.getByRole('form', { name: /子品目を置換/ })).toHaveCount(0);
+
+    // 駆動部はA（旧版）→B（有効）。差分は「削除 モーター／追加 電装部品」
+    await page.getByLabel('リビジョンを見る品目').selectOption('SA-820');
+    const history = page.getByRole('table', { name: 'リビジョン履歴' });
+    await expect(history.getByRole('row')).toHaveCount(3);
+    await expect(history.getByRole('row').nth(1)).toContainText('旧版');
+    await expect(history.getByRole('row').nth(2)).toContainText('有効');
+    const diff = page.getByRole('table', { name: /リビジョン A から B への差分/ });
+    await expect(diff.getByRole('row')).toHaveCount(3);
+    await expect(diff.getByRole('row').nth(1)).toContainText('削除');
+    await expect(diff.getByRole('row').nth(1)).toContainText('PT-850');
+    await expect(diff.getByRole('row').nth(2)).toContainText('追加');
+    await expect(diff.getByRole('row').nth(2)).toContainText('PT-870');
+
+    // 親のコンベア装置は、自分の行が変わっていないのでAのまま
+    await page.getByLabel('リビジョンを見る品目').selectOption('FG-800');
+    await expect(history.getByRole('row')).toHaveCount(2);
+
+    // 行を終了すると、M-BOMタブに未反映の警告が出る
+    await page.getByRole('button', { name: 'SA-820 → PT-860 を終了' }).click();
+    await page.getByRole('button', { name: 'D1 で終了する' }).click();
+    const finalScan = await new AxeBuilder({ page }).analyze();
+    expect(finalScan.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([]);
+  });
+});

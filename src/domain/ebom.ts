@@ -87,11 +87,17 @@ export function reviseEbomLine(
     throw new Error('新しい版の有効開始日は旧版より後である必要があります');
   }
 
+  // 何も変わらない改訂は受け付けない（版とリビジョンだけが上がり、その日は元に戻せなくなるため。PLM-EXT-23）
+  // undefined の項目は「指定なし」として扱う（判定と適用を揃える）
+  const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as typeof patch;
+  const changed = (Object.keys(given) as (keyof typeof given)[]).some((k) => given[k] !== oldLine[k]);
+  if (!changed) throw new Error('今の内容と同じです。変更する値を入力してください');
+
   oldLine.effectiveToDay = effectiveFromDay;
 
   const newLine: PlmBomLine = {
     ...oldLine,
-    ...patch,
+    ...given,
     bomLineId: newBomLineId,
     version: oldLine.version + 1,
     effectiveFromDay,
@@ -122,6 +128,29 @@ function assertChangeDay(line: PlmBomLine, day: number): void {
   if (day <= line.effectiveFromDay) {
     throw new Error('変更が効く日は、行の有効開始日より後である必要があります');
   }
+}
+
+// 画面用：現行のE-BOM行について、いま改訂・終了・置換ができない理由を返す（できるならundefined）。
+// 判定は終了・置換の本体と同じ条件で、画面はボタンを無効にして理由を見せるためだけに使う（PLM-EXT-23）。
+export interface EbomLineBlockers {
+  day?: string; // その日は改訂・終了・置換のどれもできない
+  end?: string;
+  replace?: string;
+}
+
+export function ebomLineBlockers(bomLines: PlmBomLine[], line: PlmBomLine, day: number): EbomLineBlockers {
+  const blockers: EbomLineBlockers = {};
+  const current = currentEbomLines(bomLines);
+  if (day < line.effectiveFromDay) blockers.day = `D${line.effectiveFromDay}から有効になる予定の行のため、D${line.effectiveFromDay + 1}以降に変更できます`;
+  else if (day === line.effectiveFromDay) blockers.day = `D${line.effectiveFromDay}に始まった行のため、D${line.effectiveFromDay + 1}以降に変更できます`;
+  if (isEbomOnlyGroup(line.childItemId, current)) {
+    blockers.end = 'E-BOM限定グループへの行';
+    blockers.replace = 'E-BOM限定グループへの行';
+  } else if (line.isEbomOnly && current.filter((l) => l.parentItemId === line.parentItemId && l.isEbomOnly).length === 1) {
+    blockers.end = 'グループの最後の子';
+  }
+  if (line.alternateGroupId !== undefined) blockers.replace = '代替部品グループの行';
+  return blockers;
 }
 
 // 「親 → E-BOM限定グループ」の行は終了・置換できない（PLM-EXT-21）。グループの子行が残ったまま親への

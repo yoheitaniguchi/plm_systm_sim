@@ -4,6 +4,7 @@ import { generateNewItemCode } from '../../domain/item';
 import type { AppAction, AppState } from '../../domain/reducer';
 import type { ItemCodePrefix } from '../../domain/types';
 import { BomTree } from '../components/BomTree';
+import { EbomChangePanel } from './EbomChangePanel';
 
 interface EbomTabProps {
   state: AppState;
@@ -92,6 +93,8 @@ export function EbomTab({ state, dispatch }: EbomTabProps) {
           追加（循環参照は登録時に拒否されます）
         </button>
       </form>
+
+      <EbomChangePanel state={state} dispatch={dispatch} />
 
       {optionGroups.size > 0 && (
         <>
