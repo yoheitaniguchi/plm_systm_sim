@@ -163,8 +163,9 @@ function assertNotLineToGroup(line: PlmBomLine, bomLines: PlmBomLine[]): void {
   }
 }
 
-// E-BOM限定グループを畳んだ後の親（グループの下の行なら、グループの実親）。循環に備えて段数を限る
-function flattenedParent(parentItemId: string, currentLines: PlmBomLine[]): string {
+// E-BOM限定グループを畳んだ後の親（グループの下の行なら、グループの実親）。循環に備えて段数を限る。
+// 置換の重複検査と、画面の置換候補の絞り込み（EbomChangePanel）で共有する
+export function flattenedParent(parentItemId: string, currentLines: PlmBomLine[]): string {
   let parent = parentItemId;
   for (let depth = 0; depth < 20 && isEbomOnlyGroup(parent, currentLines); depth++) {
     const toGroup = currentLines.find((l) => l.childItemId === parent);
@@ -172,6 +173,21 @@ function flattenedParent(parentItemId: string, currentLines: PlmBomLine[]): stri
     parent = toGroup.parentItemId;
   }
   return parent;
+}
+
+// 子品目の置換で、同じ親子の行が重なるか（PLM-EXT-21）。E-BOM限定グループの下の行は、M-BOMへ変換すると
+// グループの実親の行になる。変換後に同じ親子の行が2つできないよう、グループを畳んだ後の親で比べる。
+// 置換の拒否と、画面の置換候補の絞り込み（EbomChangePanel）で同じ判定を使う
+export function wouldDuplicateOnReplace(currentLines: PlmBomLine[], oldLine: PlmBomLine, newChildItemId: string): boolean {
+  const flatParent = flattenedParent(oldLine.parentItemId, currentLines);
+  return currentLines.some(
+    (l) =>
+      l.bomLineId !== oldLine.bomLineId &&
+      l.childItemId === newChildItemId &&
+      l.optionGroupId === oldLine.optionGroupId &&
+      l.optionCode === oldLine.optionCode &&
+      flattenedParent(l.parentItemId, currentLines) === flatParent,
+  );
 }
 
 // E-BOM行の終了（PLM-EXT-21）。後継の行を作らずに閉じる。行は削除せず履歴に残す。
@@ -218,19 +234,7 @@ export function replaceEbomChild(
   if (newChildItemId === oldLine.childItemId) {
     throw new Error('置換後の子品目が今と同じです');
   }
-  // E-BOM限定グループの下の行は、M-BOMへ変換するとグループの実親の行になる。変換後に同じ親子の行が
-  // 2つできないよう、グループを畳んだ後の親で比べる
-  const current = currentEbomLines(bomLines);
-  const flatParent = (l: PlmBomLine) => flattenedParent(l.parentItemId, current);
-  const duplicate = current.some(
-    (l) =>
-      l !== oldLine &&
-      flatParent(l) === flatParent(oldLine) &&
-      l.childItemId === newChildItemId &&
-      l.optionGroupId === oldLine.optionGroupId &&
-      l.optionCode === oldLine.optionCode,
-  );
-  if (duplicate) {
+  if (wouldDuplicateOnReplace(currentEbomLines(bomLines), oldLine, newChildItemId)) {
     throw new Error(`${oldLine.parentItemId} は既に ${newChildItemId} を子に持っています（員数を変えるには、その行を改訂してください）`);
   }
   // 旧行を除いた状態で循環を調べる（旧行はこの操作で無効になる）

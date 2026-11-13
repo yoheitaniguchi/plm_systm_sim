@@ -1,6 +1,6 @@
 // E-BOM行の終了・子品目の置換と、由来の変更の記録のテスト（design.md PLM-EXT-21）。
 import { describe, expect, it } from 'vitest';
-import { addEbomLine, currentEbomLines, ebomLineBlockers, endEbomLine, replaceEbomChild, reviseEbomLine } from '../ebom';
+import { addEbomLine, currentEbomLines, ebomLineBlockers, endEbomLine, replaceEbomChild, reviseEbomLine, wouldDuplicateOnReplace } from '../ebom';
 import { isEffectiveAsOf } from '../impactAnalysis';
 import { stripPlmOnlyBomFields } from '../masterSnapshot';
 import { checkMbomStaleness, currentMbomLines } from '../mbom';
@@ -311,5 +311,20 @@ describe('reviseEbomLine (PLM-EXT-23)', () => {
     expect(() => reviseEbomLine(lines, 'E-3', { qtyPer: 2 }, 'E-9', 3)).toThrow(/今の内容と同じです/);
     expect(lines.find((l) => l.bomLineId === 'E-3')?.effectiveToDay).toBeUndefined();
     expect(lines).toHaveLength(3);
+  });
+});
+
+describe('wouldDuplicateOnReplace (X3 事後レビュー)', () => {
+  it('compares parents after folding the E-BOM-only group, the same way replaceEbomChild rejects', () => {
+    const state = createWoodenChairDemoState();
+    const current = currentEbomLines(state.bomLines);
+    const screw = current.find((l) => l.bomLineId === 'E-6')!; // EU-450（脚部ユニット）→ PT-500
+    // SA-200 は実親 FG-100 が既に持つ子。グループの親（EU-450）で比べると見落とす
+    expect(current.some((l) => l.parentItemId === 'EU-450' && l.childItemId === 'SA-200')).toBe(false);
+    expect(wouldDuplicateOnReplace(current, screw, 'SA-200')).toBe(true);
+    expect(wouldDuplicateOnReplace(current, screw, 'PT-400')).toBe(true); // 同じグループの兄弟
+    expect(wouldDuplicateOnReplace(current, screw, 'RM-300')).toBe(false);
+    // 画面が候補から外すものは、ドメインも拒否する
+    expect(() => replaceEbomChild(state.bomLines, 'E-6', 'SA-200', 'E-99', 1)).toThrow(/既に SA-200 を子に持っています/);
   });
 });
