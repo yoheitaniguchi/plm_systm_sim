@@ -226,22 +226,37 @@ describe('end / replace around E-BOM-only groups, alternates and staleness (wood
     expect(currentMbomLines(state.bomLines).some((l) => l.childItemId === 'EU-450' || l.parentItemId === 'EU-450')).toBe(false);
   });
 
-  it('refuses to end the last child in effect when the only other child starts later, so the group is never empty in between', () => {
+  // X3 事後判断：終了の可否は「変更が効く日に、そのグループに効いている子が残るか」で決める
+  function chairWithOnlyE6(): AppState {
     let state = chair();
     state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-5', effectiveFromDay: 3 });
     state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-7', effectiveFromDay: 3 });
     expect(state.lastError).toBeNull();
-    // D6から始まる子を足しても、D3〜D5 は E-6 しか無い
+    return state;
+  }
+  const e6 = (state: AppState) => state.bomLines.find((l) => l.bomLineId === 'E-6')!;
+
+  it('refuses to end the last child in effect when the only other child starts after the change day', () => {
+    let state = chairWithOnlyE6();
+    // D6から始まる子を足しても、D3〜D5 は E-6 しか効いていない
     addEbomLine(state.bomLines, { bomLineId: 'E-90', parentItemId: 'EU-450', childItemId: 'PT-401', qtyPer: 4, effectiveFromDay: 6, isEbomOnly: true });
     const before = structuredClone(state.bomLines);
-    expect(ebomLineBlockers(state.bomLines, state.bomLines.find((l) => l.bomLineId === 'E-6')!, 3)).toEqual({ end: 'グループで今有効な最後の子' });
+    expect(ebomLineBlockers(state.bomLines, e6(state), 3)).toEqual({ end: 'グループで今有効な最後の子' });
     state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-6', effectiveFromDay: 3 });
     expect(state.lastError).toMatch(/D3に有効な子がこの行のほかに無いため終了できません/);
     expect(state.bomLines).toEqual(before);
-    // 後から始まる子が有効になる日からなら終了できる
-    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-6', effectiveFromDay: 6 });
+  });
+
+  it('allows ending the child when another child has started before the change day', () => {
+    let state = chairWithOnlyE6();
+    // D4から始まる子があれば、D5からの終了ではその子が効いているので終了できる
+    addEbomLine(state.bomLines, { bomLineId: 'E-90', parentItemId: 'EU-450', childItemId: 'PT-401', qtyPer: 4, effectiveFromDay: 4, isEbomOnly: true });
+    state = reducer(state, { type: 'ui/advanceDay', byDays: 2 });
+    expect(state.currentDay).toBe(5);
+    expect(ebomLineBlockers(state.bomLines, e6(state), 5)).toEqual({});
+    state = reducer(state, { type: 'ebom/endLine', bomLineId: 'E-6', effectiveFromDay: 5 });
     expect(state.lastError).toBeNull();
-    expect(state.bomLines.find((l) => l.bomLineId === 'E-6')!.effectiveToDay).toBe(6);
+    expect(e6(state).effectiveToDay).toBe(5);
   });
 
   it('refuses to replace a line of an alternate group', () => {

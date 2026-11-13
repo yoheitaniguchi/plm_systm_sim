@@ -154,12 +154,20 @@ export function ebomLineBlockers(bomLines: PlmBomLine[], line: PlmBomLine, day: 
 }
 
 // E-BOM限定グループの子行を、その日から終了するとグループが空になるか（PLM-EXT-21、X3 事後判断）。
-// 終了の日に既に有効で、終わる予定の無いほかの子が1つも無ければ空になる。未来の日から始まる子は数えない
-// （数えると、その子が始まるまでの間グループの子が0になる抜け道になるため）。
+// 「変更が効く日」に、終了する行を除いてそのグループに効いている子が1つも無ければ空になる。
+// 現行行（effectiveToDay が無い行）で数えると、未来に始まる子があるだけで今効いている最後の子を終了でき、
+// その子が始まるまでグループの子が0になる抜け道になるため、その日に効いているかで数える
+// （判定は impactAnalysis.isEffectiveAsOf() と同じ。ebom から impactAnalysis へは依存させないため写している）。
 function wouldEmptyGroup(bomLines: PlmBomLine[], line: PlmBomLine, day: number): boolean {
   if (!line.isEbomOnly) return false;
-  return !currentEbomLines(bomLines).some(
-    (l) => l.bomLineId !== line.bomLineId && l.parentItemId === line.parentItemId && l.isEbomOnly && l.effectiveFromDay <= day,
+  return !bomLines.some(
+    (l) =>
+      l.bomLineId !== line.bomLineId &&
+      l.bomType === 'E' &&
+      l.parentItemId === line.parentItemId &&
+      l.isEbomOnly &&
+      l.effectiveFromDay <= day &&
+      (l.effectiveToDay === undefined || day < l.effectiveToDay),
   );
 }
 
